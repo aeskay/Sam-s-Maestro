@@ -1,7 +1,7 @@
 import { UserProgress, Message } from "../types";
 import { CURRICULUM } from "./curriculum";
 
-const STORAGE_KEY = 'sams_maestro_progress_v3';
+const STORAGE_KEY = 'sams_maestro_progress_v5'; // Incremented version
 
 const INITIAL_PROGRESS: UserProgress = {
   userName: null,
@@ -11,8 +11,14 @@ const INITIAL_PROGRESS: UserProgress = {
   lastLoginDate: null,
   wordsLearned: 0,
   completedTopicIds: [],
+  completedSubTopicIds: [],
   unlockedTopicIds: ['greetings'],
   topicHistory: {},
+  preferences: {
+    autoPlayAudio: false,
+    voiceName: 'Kore',
+    playbackSpeed: 1.0
+  }
 };
 
 const sanitizeMessages = (messages: Message[]): Message[] => {
@@ -46,7 +52,16 @@ export const loadProgress = (): UserProgress => {
   if (stored) {
     try {
       const parsed = JSON.parse(stored);
-      progress = { ...INITIAL_PROGRESS, ...parsed };
+      progress = { 
+        ...INITIAL_PROGRESS, 
+        ...parsed,
+        preferences: {
+          ...INITIAL_PROGRESS.preferences,
+          ...(parsed.preferences || {})
+        },
+        // Ensure array exists for older save versions
+        completedSubTopicIds: parsed.completedSubTopicIds || []
+      };
     } catch (e) {
       console.error("Failed to parse progress", e);
     }
@@ -74,35 +89,52 @@ export const loadProgress = (): UserProgress => {
   return progress;
 };
 
-export const unlockNextTopic = (currentTopicId: string, currentProgress: UserProgress): UserProgress => {
-  const currentIdx = CURRICULUM.findIndex(t => t.id === currentTopicId);
-  const nextTopic = CURRICULUM[currentIdx + 1];
+// Returns updated progress
+export const completeSubTopic = (topicId: string, subTopicId: string, currentProgress: UserProgress): UserProgress => {
+  // 1. Mark subtopic complete
+  const newCompletedSubTopics = [...new Set([...currentProgress.completedSubTopicIds, subTopicId])];
   
-  const newCompleted = [...new Set([...currentProgress.completedTopicIds, currentTopicId])];
-  let newUnlocked = [...currentProgress.unlockedTopicIds];
+  // 2. Check if whole Topic is complete
+  const topic = CURRICULUM.find(t => t.id === topicId);
+  let newCompletedTopics = [...currentProgress.completedTopicIds];
+  let newUnlockedTopics = [...currentProgress.unlockedTopicIds];
 
-  if (nextTopic && !newUnlocked.includes(nextTopic.id)) {
-    newUnlocked.push(nextTopic.id);
+  if (topic) {
+    const allSubTopicsDone = topic.subTopics.every(st => newCompletedSubTopics.includes(st.id));
+    
+    if (allSubTopicsDone) {
+      if (!newCompletedTopics.includes(topicId)) {
+        newCompletedTopics.push(topicId);
+        
+        // Unlock next Topic
+        const currentIdx = CURRICULUM.findIndex(t => t.id === topicId);
+        const nextTopic = CURRICULUM[currentIdx + 1];
+        if (nextTopic && !newUnlockedTopics.includes(nextTopic.id)) {
+          newUnlockedTopics.push(nextTopic.id);
+        }
+      }
+    }
   }
 
   const updated = {
     ...currentProgress,
-    completedTopicIds: newCompleted,
-    unlockedTopicIds: newUnlocked,
-    xp: currentProgress.xp + 100,
-    wordsLearned: currentProgress.wordsLearned + 15 // Arbitrary reward for completion
+    completedSubTopicIds: newCompletedSubTopics,
+    completedTopicIds: newCompletedTopics,
+    unlockedTopicIds: newUnlockedTopics,
+    xp: currentProgress.xp + 50, // XP for subtopic
+    wordsLearned: currentProgress.wordsLearned + 5
   };
 
   saveProgress(updated);
   return updated;
 };
 
-export const saveTopicHistory = (progress: UserProgress, topicId: string, messages: Message[]): UserProgress => {
+export const saveTopicHistory = (progress: UserProgress, subTopicId: string, messages: Message[]): UserProgress => {
   const updated = {
     ...progress,
     topicHistory: {
       ...progress.topicHistory,
-      [topicId]: messages
+      [subTopicId]: messages
     }
   };
   saveProgress(updated);

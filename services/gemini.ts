@@ -1,12 +1,11 @@
 import { GoogleGenAI, Modality, Type, FunctionDeclaration } from "@google/genai";
-import { UserLevel, Message, Topic, QuizQuestion, Flashcard } from "../types";
+import { UserLevel, Message, Topic, SubTopic, QuizQuestion, Flashcard } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
-// Define the tool for the model to use
 const suggestQuizTool: FunctionDeclaration = {
   name: "suggest_quiz",
-  description: "Call this function when the user has demonstrated sufficient understanding of the current topic and should take a quiz to advance.",
+  description: "Call this function when the user has demonstrated sufficient understanding of the specific sub-topic lesson and should take a quiz to advance.",
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -18,36 +17,35 @@ const suggestQuizTool: FunctionDeclaration = {
   }
 };
 
-// System instructions based on user level and Topic
-const getSystemInstruction = (level: UserLevel, topic?: Topic, userName?: string) => {
+// Updated to accept SubTopic
+const getSystemInstruction = (level: UserLevel, topic?: Topic, subTopic?: SubTopic, userName?: string) => {
   let base = `You are "Sam's Maestro", a friendly, encouraging, and world-class Spanish language tutor. 
-  Your goal is to help the user${userName ? ` named ${userName}` : ''} learn Spanish through conversation.
-  Keep your responses concise (under 3-4 sentences usually) to fit well on a mobile screen.
-  Always correct the user's mistakes gently but clearly.`;
+  Your goal is to help the user${userName ? ` named ${userName}` : ''} learn Spanish.
+  Keep your responses concise (under 3-4 sentences).`;
 
-  if (topic) {
-    base += `\n\nCURRENT LESSON TOPIC: "${topic.title}" - ${topic.description}.
-    Focus the conversation strictly on this topic. Introduce vocabulary related to this topic.
+  if (topic && subTopic) {
+    base += `\n\nCURRENT LESSON: "${topic.title}" -> "${subTopic.title}".
+    DESCRIPTION: ${subTopic.description}.
     
-    IMPORTANT PROGRESSION LOGIC:
-    1. Assess the user's responses.
-    2. If the user has successfully exchanged 4-5 messages using the topic's vocabulary correctly, OR if they explicitly ask to move on, you MUST call the 'suggest_quiz' tool.
-    3. Do not just say "take the quiz", actually call the function.`;
+    Focus ONLY on the vocabulary and phrases for "${subTopic.title}". 
+    Do not drift to other parts of the main topic yet.
+    
+    PROGRESSION LOGIC:
+    1. Teach the specific concepts of this sub-lesson.
+    2. Correct mistakes gently.
+    3. After 3-5 exchanges where the user correctly uses the specific vocabulary for this sub-lesson, call 'suggest_quiz'.`;
   }
 
   switch (level) {
     case UserLevel.BEGINNER:
       return `${base} 
-      The user is a Beginner. Speak mostly in English (70%), introducing basic Spanish words and phrases related to the topic. 
-      Translate any new Spanish words immediately.`;
+      User is Beginner. Explain in English, practice in Spanish. Translate new words immediately.`;
     case UserLevel.INTERMEDIATE:
       return `${base} 
-      The user is Intermediate. Speak 50/50 Spanish and English. 
-      Challenge them with fuller sentences. Only translate complex phrases.`;
+      User is Intermediate. 50/50 English/Spanish.`;
     case UserLevel.EXPERT:
       return `${base} 
-      The user is an Expert. Speak almost entirely in Spanish (95%+). 
-      Discuss nuances. Only switch to English if explicitly asked.`;
+      User is Expert. 95% Spanish.`;
     default:
       return base;
   }
@@ -64,11 +62,12 @@ export async function sendMessageToGemini(
   newMessage: string, 
   level: UserLevel,
   topic?: Topic,
+  subTopic?: SubTopic,
   userName?: string
 ): Promise<ChatResponse> {
   try {
     const model = "gemini-2.5-flash";
-    const systemInstruction = getSystemInstruction(level, topic, userName);
+    const systemInstruction = getSystemInstruction(level, topic, subTopic, userName);
 
     const recentHistory = history.slice(-10).map(msg => ({
       role: msg.role,
@@ -87,7 +86,6 @@ export async function sendMessageToGemini(
 
     const result = await chat.sendMessage({ message: newMessage });
     
-    // Check for function calls
     const functionCall = result.functionCalls?.find(fc => fc.name === 'suggest_quiz');
     const suggestQuiz = !!functionCall;
     const suggestionReason = functionCall?.args?.reason as string | undefined;
@@ -107,10 +105,12 @@ export async function sendMessageToGemini(
   }
 }
 
-export async function generateQuizForTopic(topic: Topic, level: UserLevel): Promise<QuizQuestion[]> {
+// Updated to generate quiz specific to SubTopic
+export async function generateQuizForTopic(topic: Topic, subTopic: SubTopic, level: UserLevel): Promise<QuizQuestion[]> {
   try {
-    const prompt = `Generate 3 multiple-choice questions in Spanish to test the user's knowledge of the topic: "${topic.title}".
-    The user level is ${level}.
+    const prompt = `Generate 3 multiple-choice questions in Spanish to test the user's knowledge of the specific lesson: "${topic.title} - ${subTopic.title}".
+    Context/Vocab: ${subTopic.description}.
+    User Level: ${level}.
     Return strictly JSON.`;
 
     const response = await ai.models.generateContent({
@@ -123,14 +123,10 @@ export async function generateQuizForTopic(topic: Topic, level: UserLevel): Prom
           items: {
             type: Type.OBJECT,
             properties: {
-              question: { type: Type.STRING, description: "The question text in Spanish" },
-              options: { 
-                type: Type.ARRAY, 
-                items: { type: Type.STRING },
-                description: "4 possible answers"
-              },
-              correctAnswerIndex: { type: Type.INTEGER, description: "Index of the correct answer (0-3)" },
-              explanation: { type: Type.STRING, description: "Explanation of why it is correct, in English" }
+              question: { type: Type.STRING, description: "Question in Spanish" },
+              options: { type: Type.ARRAY, items: { type: Type.STRING } },
+              correctAnswerIndex: { type: Type.INTEGER },
+              explanation: { type: Type.STRING, description: "Explanation in English" }
             },
             required: ["question", "options", "correctAnswerIndex", "explanation"]
           }
@@ -144,20 +140,18 @@ export async function generateQuizForTopic(topic: Topic, level: UserLevel): Prom
     throw new Error("No text returned");
   } catch (e) {
     console.error("Quiz generation failed", e);
-    return [
-      {
-        question: "¿Cómo se dice 'Hello'?",
-        options: ["Adios", "Hola", "Gracias", "Por favor"],
-        correctAnswerIndex: 1,
-        explanation: "Hola means Hello."
-      }
-    ];
+    return [{
+        question: "Error generating quiz",
+        options: ["OK"],
+        correctAnswerIndex: 0,
+        explanation: "Please try again."
+    }];
   }
 }
 
-export async function generateFlashcardsForTopic(topic: Topic, level: UserLevel): Promise<Flashcard[]> {
+export async function generateFlashcardsForTopic(topic: Topic, subTopic: SubTopic, level: UserLevel): Promise<Flashcard[]> {
   try {
-     const prompt = `Generate 5 flashcards for Spanish vocabulary related to the topic: "${topic.title}".
+     const prompt = `Generate 5 flashcards for Spanish vocabulary strictly related to: "${subTopic.title}" (${subTopic.description}).
      User Level: ${level}.
      Return strictly JSON.`;
 
@@ -171,9 +165,9 @@ export async function generateFlashcardsForTopic(topic: Topic, level: UserLevel)
            items: {
              type: Type.OBJECT,
              properties: {
-               front: { type: Type.STRING, description: "The Spanish word or phrase" },
-               back: { type: Type.STRING, description: "The English translation" },
-               example: { type: Type.STRING, description: "A simple example sentence in Spanish using the word" }
+               front: { type: Type.STRING },
+               back: { type: Type.STRING },
+               example: { type: Type.STRING }
              },
              required: ["front", "back", "example"]
            }
@@ -187,14 +181,11 @@ export async function generateFlashcardsForTopic(topic: Topic, level: UserLevel)
     throw new Error("No text returned for flashcards");
   } catch (e) {
     console.error("Flashcard generation failed", e);
-    return [
-      { front: "Hola", back: "Hello", example: "Hola, amigo." },
-      { front: "Gracias", back: "Thank you", example: "Muchas gracias." }
-    ];
+    return [];
   }
 }
 
-export async function generateSpeechFromText(text: string): Promise<string | null> {
+export async function generateSpeechFromText(text: string, voiceName: string = 'Kore'): Promise<string | null> {
   try {
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
@@ -202,7 +193,7 @@ export async function generateSpeechFromText(text: string): Promise<string | nul
       config: {
         responseModalities: [Modality.AUDIO],
         speechConfig: {
-          voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } }
+          voiceConfig: { prebuiltVoiceConfig: { voiceName } }
         }
       }
     });

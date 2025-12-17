@@ -26,6 +26,12 @@ export interface Flashcard {
   example: string; // Example sentence in Spanish
 }
 
+export interface SubTopic {
+  id: string;
+  title: string;
+  description: string;
+}
+
 export interface Topic {
   id: string;
   title: string;
@@ -33,6 +39,13 @@ export interface Topic {
   emoji: string;
   requiredLevel: UserLevel; // Minimum level recommendation
   order: number;
+  subTopics: SubTopic[];
+}
+
+export interface UserPreferences {
+  autoPlayAudio: boolean;
+  voiceName: 'Puck' | 'Charon' | 'Kore' | 'Fenrir' | 'Zephyr';
+  playbackSpeed: number; // 1.0 is normal
 }
 
 export interface UserProgress {
@@ -42,9 +55,11 @@ export interface UserProgress {
   streak: number;
   lastLoginDate: string | null; // ISO Date string
   wordsLearned: number;
-  completedTopicIds: string[];
+  completedTopicIds: string[]; // Still useful for high-level badges
+  completedSubTopicIds: string[]; // Granular tracking
   unlockedTopicIds: string[];
-  topicHistory: Record<string, Message[]>; // Persist chat history per topic
+  topicHistory: Record<string, Message[]>; // Keyed by subTopicId now
+  preferences: UserPreferences;
 }
 
 export enum AppView {

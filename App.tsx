@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { UserLevel, Message, AppView, Topic, QuizQuestion, Flashcard } from './types';
-import { loadProgress, saveProgress, unlockNextTopic, saveTopicHistory } from './services/storage';
+import { UserLevel, Message, AppView, Topic, SubTopic, QuizQuestion, Flashcard, UserPreferences } from './types';
+import { loadProgress, saveProgress, completeSubTopic, saveTopicHistory } from './services/storage';
 import { sendMessageToGemini, generateSpeechFromText, generateQuizForTopic, generateFlashcardsForTopic } from './services/gemini';
 import { decodeAudioData, playAudioBuffer } from './services/audioUtils';
 
@@ -11,15 +11,18 @@ import InputArea from './components/InputArea';
 import Quiz from './components/Quiz';
 import Flashcards from './components/Flashcards';
 import ProfileModal from './components/ProfileModal';
+import SettingsModal from './components/SettingsModal';
 
 const App: React.FC = () => {
   // State
   const [view, setView] = useState<AppView>(AppView.LEVEL_SELECT);
   const [progress, setProgress] = useState(loadProgress());
   const [currentTopic, setCurrentTopic] = useState<Topic | null>(null);
+  const [currentSubTopic, setCurrentSubTopic] = useState<SubTopic | null>(null);
   
   // UI State
   const [showProfile, setShowProfile] = useState(false);
+  const [showSettings, setShowSettings] = useState(false);
   const [showGameMenu, setShowGameMenu] = useState(false);
   const [quizSuggestion, setQuizSuggestion] = useState<string | null>(null);
 
@@ -70,37 +73,45 @@ const App: React.FC = () => {
     saveProgress(newProgress);
   };
 
-  const handleTopicSelect = (topic: Topic) => {
+  const handleUpdatePreferences = (prefs: UserPreferences) => {
+    const newProgress = { ...progress, preferences: prefs };
+    setProgress(newProgress);
+    saveProgress(newProgress);
+  };
+
+  const handleTopicSelect = (topic: Topic, subTopic: SubTopic) => {
     setCurrentTopic(topic);
+    setCurrentSubTopic(subTopic);
     setView(AppView.CHAT);
-    setQuizSuggestion(null); // Reset suggestion
+    setQuizSuggestion(null);
     
-    const existingHistory = progress.topicHistory?.[topic.id];
+    // Load history for specific SubTopic
+    const existingHistory = progress.topicHistory?.[subTopic.id];
     
     if (existingHistory && existingHistory.length > 0) {
       setMessages(existingHistory);
     } else {
       const initialMessage: Message = {
-        id: `init-${topic.id}-${Date.now()}`,
+        id: `init-${subTopic.id}-${Date.now()}`,
         role: 'model',
-        text: `¡Hola ${progress.userName || ''}! Welcome to "${topic.title}". ${topic.description} Let's start!`,
+        text: `¡Hola! Welcome to "${subTopic.title}". ${subTopic.description} Vamos a empezar!`,
         timestamp: Date.now()
       };
       setMessages([initialMessage]);
-      const updatedProgress = saveTopicHistory(progress, topic.id, [initialMessage]);
+      const updatedProgress = saveTopicHistory(progress, subTopic.id, [initialMessage]);
       setProgress(updatedProgress);
     }
   };
 
   const handleSendMessage = async (text: string) => {
     initAudioContext();
-    if (!currentTopic) return;
-    setQuizSuggestion(null); // Hide suggestion if chatting continues
+    if (!currentTopic || !currentSubTopic) return;
+    setQuizSuggestion(null);
 
     const newUserMsg: Message = { id: Date.now().toString(), role: 'user', text, timestamp: Date.now() };
     const messagesAfterUser = [...messages, newUserMsg];
     setMessages(messagesAfterUser);
-    const progressAfterUser = saveTopicHistory(progress, currentTopic.id, messagesAfterUser);
+    const progressAfterUser = saveTopicHistory(progress, currentSubTopic.id, messagesAfterUser);
     setProgress(progressAfterUser);
     setIsTyping(true);
 
@@ -110,11 +121,13 @@ const App: React.FC = () => {
         text, 
         progress.level!, 
         currentTopic, 
+        currentSubTopic,
         progress.userName || undefined
       );
       
+      const newAiMsgId = (Date.now() + 1).toString();
       const newAiMsg: Message = {
-        id: (Date.now() + 1).toString(),
+        id: newAiMsgId,
         role: 'model',
         text: response.text,
         timestamp: Date.now()
@@ -122,12 +135,15 @@ const App: React.FC = () => {
       
       const messagesAfterAi = [...messagesAfterUser, newAiMsg];
       setMessages(messagesAfterAi);
-      const progressAfterAi = saveTopicHistory(progressAfterUser, currentTopic.id, messagesAfterAi);
+      const progressAfterAi = saveTopicHistory(progressAfterUser, currentSubTopic.id, messagesAfterAi);
       setProgress(progressAfterAi);
 
-      // Handle Quiz Suggestion
       if (response.suggestQuiz) {
-        setQuizSuggestion(response.suggestionReason || "You've mastered this topic!");
+        setQuizSuggestion(response.suggestionReason || "Great job! Ready for a quick quiz?");
+      }
+
+      if (progress.preferences.autoPlayAudio) {
+        handlePlayAudio(newAiMsg, true); 
       }
 
     } catch (e) {
@@ -139,12 +155,12 @@ const App: React.FC = () => {
 
   // --- Game Handlers ---
   const handleStartQuiz = async () => {
-    if (!currentTopic || !progress.level) return;
+    if (!currentTopic || !currentSubTopic || !progress.level) return;
     setIsLoadingGame(true);
     setShowGameMenu(false);
     setQuizSuggestion(null);
     try {
-      const questions = await generateQuizForTopic(currentTopic, progress.level);
+      const questions = await generateQuizForTopic(currentTopic, currentSubTopic, progress.level);
       setQuizQuestions(questions);
       setView(AppView.QUIZ);
     } catch (e) {
@@ -155,11 +171,11 @@ const App: React.FC = () => {
   };
 
   const handleStartFlashcards = async () => {
-    if (!currentTopic || !progress.level) return;
+    if (!currentTopic || !currentSubTopic || !progress.level) return;
     setIsLoadingGame(true);
     setShowGameMenu(false);
     try {
-      const cards = await generateFlashcardsForTopic(currentTopic, progress.level);
+      const cards = await generateFlashcardsForTopic(currentTopic, currentSubTopic, progress.level);
       setFlashcards(cards);
       setView(AppView.FLASHCARDS);
     } catch (e) {
@@ -170,54 +186,60 @@ const App: React.FC = () => {
   };
 
   const handleQuizComplete = (score: number) => {
-    if (score >= 2 && currentTopic) {
-      const updated = unlockNextTopic(currentTopic.id, progress);
+    // If they pass the quiz (2/3 correct)
+    if (score >= 2 && currentTopic && currentSubTopic) {
+      const updated = completeSubTopic(currentTopic.id, currentSubTopic.id, progress);
       setProgress(updated);
-      alert(`¡Felicidades! You earned 100 XP & 15 Words!`);
+      alert(`¡Muy bien! Sub-topic complete. +50 XP`);
     } else {
-      alert(`Nice try! You got ${score}/3.`);
+      alert(`Nice try! You got ${score}/3. Try again to advance.`);
     }
     setView(AppView.DASHBOARD);
   };
 
   const handleFlashcardsComplete = () => {
-    // Award small XP for reviewing
-    const updated = { ...progress, xp: progress.xp + 20 };
+    const updated = { ...progress, xp: progress.xp + 15 };
     setProgress(updated);
     saveProgress(updated);
-    alert("Flashcards reviewed! +20 XP");
+    alert("Flashcards reviewed! +15 XP");
     setView(AppView.DASHBOARD);
   };
 
   // --- Audio Player ---
-  const handlePlayAudio = async (msg: Message) => {
+  const handlePlayAudio = async (msg: Message, isAutoPlay = false) => {
     initAudioContext();
     if (!audioContextRef.current) return;
+    
     if (activeSourceRef.current) {
       try { activeSourceRef.current.stop(); } catch (e) {}
       activeSourceRef.current = null;
       setMessages(prev => prev.map(m => ({ ...m, isAudioPlaying: false })));
-      if (msg.isAudioPlaying) return;
+      if (msg.isAudioPlaying && !isAutoPlay) return;
     }
+
     setLoadingAudioId(msg.id);
+    
     try {
       let buffer = msg.audioBuffer;
       if (!buffer) {
-        const base64Data = await generateSpeechFromText(msg.text);
+        const base64Data = await generateSpeechFromText(msg.text, progress.preferences.voiceName);
         if (base64Data) {
           buffer = await decodeAudioData(base64Data, audioContextRef.current);
           setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, audioBuffer: buffer } : m));
         }
       }
+      
       if (buffer) {
         setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, isAudioPlaying: true } : { ...m, isAudioPlaying: false }));
         setLoadingAudioId(null);
+        
         activeSourceRef.current = playAudioBuffer(audioContextRef.current, buffer, () => {
           setMessages(prev => prev.map(m => m.id === msg.id ? { ...m, isAudioPlaying: false } : m));
           activeSourceRef.current = null;
         });
       }
     } catch (e) {
+      console.error("Audio playback failed", e);
       setLoadingAudioId(null);
       setMessages(prev => prev.map(m => ({ ...m, isAudioPlaying: false })));
     }
@@ -229,9 +251,7 @@ const App: React.FC = () => {
 
   // --- Renders ---
 
-  // Check if we need to show profile modal for first time users
   if (view === AppView.DASHBOARD && !progress.userName && !showProfile) {
-     // Force open profile if no name
      setTimeout(() => setShowProfile(true), 500);
   }
 
@@ -249,6 +269,13 @@ const App: React.FC = () => {
             onUpdateName={handleUpdateName} 
           />
         )}
+        {showSettings && (
+          <SettingsModal
+            progress={progress}
+            onClose={() => setShowSettings(false)}
+            onUpdatePreferences={handleUpdatePreferences}
+          />
+        )}
         <Dashboard 
           progress={progress} 
           onSelectTopic={handleTopicSelect}
@@ -257,6 +284,7 @@ const App: React.FC = () => {
             window.location.reload();
           }}
           onOpenProfile={() => setShowProfile(true)}
+          onOpenSettings={() => setShowSettings(true)}
         />
       </>
     );
@@ -277,11 +305,11 @@ const App: React.FC = () => {
         <button onClick={() => setView(AppView.DASHBOARD)} className="text-gray-500 hover:text-emerald-600 flex items-center gap-1">
            <span className="text-xl">‹</span> Back
         </button>
-        <div className="text-center truncate px-2">
-          <h1 className="font-bold text-gray-800 text-sm md:text-base truncate">{currentTopic?.title}</h1>
+        <div className="text-center truncate px-2 flex flex-col">
+          <h1 className="font-bold text-gray-800 text-sm truncate">{currentTopic?.title}</h1>
+          <span className="text-xs text-emerald-600 font-medium truncate">{currentSubTopic?.title}</span>
         </div>
         
-        {/* Play Menu Button */}
         <div className="relative">
           <button 
             onClick={() => setShowGameMenu(!showGameMenu)}
@@ -295,7 +323,6 @@ const App: React.FC = () => {
              {isLoadingGame ? 'Loading...' : '🎮 Play'}
           </button>
 
-          {/* Dropdown Menu */}
           {showGameMenu && (
              <>
                <div className="fixed inset-0 z-10" onClick={() => setShowGameMenu(false)}></div>
@@ -308,7 +335,7 @@ const App: React.FC = () => {
                   </button>
                   <button 
                     onClick={handleStartQuiz}
-                    disabled={messages.length < 2} // Need some context
+                    disabled={messages.length < 2}
                     className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center gap-2 ${
                         messages.length < 2 ? 'text-gray-300' : 'hover:bg-emerald-50 text-gray-700'
                     }`}
@@ -323,11 +350,10 @@ const App: React.FC = () => {
 
       <div className="flex-1 overflow-y-auto p-4 pb-24 scroll-smooth no-scrollbar max-w-2xl mx-auto w-full relative">
         {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} onPlayAudio={handlePlayAudio} isLoadingAudio={loadingAudioId === msg.id} />
+          <MessageBubble key={msg.id} message={msg} onPlayAudio={(m) => handlePlayAudio(m, false)} isLoadingAudio={loadingAudioId === msg.id} />
         ))}
-        {isTyping && <div className="text-xs text-gray-400 ml-4 animate-pulse">Sam's Maestro is typing...</div>}
+        {isTyping && <div className="text-xs text-gray-400 ml-4 animate-pulse">Maestro is typing...</div>}
         
-        {/* AI Suggestion Bubble */}
         {quizSuggestion && !isTyping && (
           <div className="mx-4 mt-6 mb-2 animate-slide-up">
             <div className="bg-gradient-to-r from-amber-100 to-orange-100 border border-orange-200 rounded-2xl p-4 shadow-sm">
@@ -340,7 +366,7 @@ const App: React.FC = () => {
                     onClick={handleStartQuiz}
                     className="bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-4 py-2 rounded-full transition-colors shadow-sm"
                   >
-                    Take Quiz to Unlock Next Level
+                    Take Quiz to Complete Lesson
                   </button>
                 </div>
               </div>
