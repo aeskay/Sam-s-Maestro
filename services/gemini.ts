@@ -17,21 +17,22 @@ const suggestQuizTool: FunctionDeclaration = {
   }
 };
 
-// Helper: Extract JSON from Markdown code blocks
+// Helper: Extract JSON from Markdown code blocks or return trimmed text
 const cleanJson = (text: string): string => {
   const match = text.match(/```json\s*([\s\S]*?)\s*```/) || text.match(/```\s*([\s\S]*?)\s*```/);
   if (match) {
-    return match[1];
+    return match[1].trim();
   }
-  return text;
+  return text.trim();
 };
 
-// Helper: Retry logic
+// Helper: Retry logic for API calls
 async function callWithRetry<T>(fn: () => Promise<T>, retries = 3, delay = 1000): Promise<T> {
   try {
     return await fn();
   } catch (error) {
     if (retries > 0) {
+      console.warn(`Retrying Gemini call after error: ${error instanceof Error ? error.message : String(error)}`);
       await new Promise(res => setTimeout(res, delay));
       return callWithRetry(fn, retries - 1, delay * 1.5);
     }
@@ -84,16 +85,21 @@ export async function sendMessageToGemini(
 ): Promise<ChatResponse> {
   return callWithRetry(async () => {
     try {
-      const model = "gemini-2.5-flash";
+      // Use 'gemini-3-flash-preview' for basic text/chat tasks
+      const modelName = "gemini-3-flash-preview";
       const systemInstruction = getSystemInstruction(level, topic, subTopic, userName);
 
-      const recentHistory = history.slice(-10).map(msg => ({
-        role: msg.role,
-        parts: [{ text: msg.text }]
-      }));
+      // Filter history to ensure the current newMessage isn't duplicated
+      const recentHistory = history
+        .filter(msg => msg.text !== newMessage)
+        .slice(-10)
+        .map(msg => ({
+          role: msg.role,
+          parts: [{ text: msg.text }]
+        }));
 
       const chat = ai.chats.create({
-        model,
+        model: modelName,
         history: recentHistory,
         config: {
           systemInstruction,
@@ -116,7 +122,7 @@ export async function sendMessageToGemini(
 
     } catch (error) {
       console.error("Gemini Chat Error:", error);
-      throw error; // Throw to trigger retry
+      throw error;
     }
   });
 }
@@ -124,14 +130,12 @@ export async function sendMessageToGemini(
 export async function generateQuizForTopic(topic: Topic, subTopic: SubTopic, level: UserLevel): Promise<QuizQuestion[]> {
   return callWithRetry(async () => {
     try {
-      // Updated prompt to reflect the deeper curriculum
       const prompt = `Generate 10 multiple-choice questions in Spanish to test the user's knowledge of the specific sub-module: "${subTopic.title}" (Context: ${topic.title}).
       Ensure questions cover vocabulary, grammar, and cultural nuances taught in this module.
-      User Level: ${level}.
-      Return strictly a JSON Array. Do not wrap in markdown.`;
+      User Level: ${level}.`;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-3-flash-preview",
         contents: prompt,
         config: {
           responseMimeType: "application/json",
@@ -156,7 +160,7 @@ export async function generateQuizForTopic(topic: Topic, subTopic: SubTopic, lev
       return JSON.parse(cleanedText) as QuizQuestion[];
 
     } catch (e) {
-      console.error("Quiz generation failed", e);
+      console.error("Quiz generation failed:", e);
       throw e;
     }
   });
@@ -167,11 +171,10 @@ export async function generateFlashcardsForTopic(topic: Topic, subTopic: SubTopi
     try {
       const prompt = `Generate 10 flashcards for Spanish vocabulary strictly related to Module: "${subTopic.title}" (${subTopic.description}).
       Include a mix of core vocabulary and slang/cultural terms if relevant.
-      User Level: ${level}.
-      Return strictly a JSON Array. Do not wrap in markdown.`;
+      User Level: ${level}.`;
 
       const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash",
+        model: "gemini-3-flash-preview",
         contents: prompt,
         config: {
           responseMimeType: "application/json",
@@ -194,14 +197,13 @@ export async function generateFlashcardsForTopic(topic: Topic, subTopic: SubTopi
       const cleanedText = cleanJson(text);
       return JSON.parse(cleanedText) as Flashcard[];
     } catch (e) {
-      console.error("Flashcard generation failed", e);
+      console.error("Flashcard generation failed:", e);
       throw e;
     }
   });
 }
 
 export async function generateSpeechFromText(text: string, voiceName: string = 'Kore'): Promise<string | null> {
-  // Strip the [Progress Bar] tag from audio to avoid reading it out loud
   const cleanText = text.replace(/\[.*?\]/, '').trim();
 
   return callWithRetry(async () => {
