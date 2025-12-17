@@ -1,0 +1,7 @@
+{
+  "name": "Sam's Maestro",
+  "description": "Your AI-powered Spanish tutor with progress tracking, quizzes, and personalized lessons.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
