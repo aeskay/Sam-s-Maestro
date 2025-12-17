@@ -1,22 +1,29 @@
 import React, { useState } from 'react';
-import { UserProgress } from '../types';
+import { UserProgress, UserLevel } from '../types';
 
 interface ProfileModalProps {
   progress: UserProgress;
   onClose: () => void;
   onUpdateName: (name: string) => void;
+  onUpdateLevel: (level: UserLevel) => void;
 }
 
-const ProfileModal: React.FC<ProfileModalProps> = ({ progress, onClose, onUpdateName }) => {
+const ProfileModal: React.FC<ProfileModalProps> = ({ progress, onClose, onUpdateName, onUpdateLevel }) => {
   const [name, setName] = useState(progress.userName || '');
   const [isEditing, setIsEditing] = useState(!progress.userName);
 
-  const handleSave = () => {
+  const handleSaveName = () => {
     if (name.trim()) {
       onUpdateName(name.trim());
       setIsEditing(false);
     }
   };
+
+  const handleLevelChange = (level: UserLevel) => {
+    if (confirm(`Are you sure you want to switch to ${level}? This won't delete progress but will change your curriculum focus.`)) {
+        onUpdateLevel(level);
+    }
+  }
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
@@ -31,7 +38,7 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ progress, onClose, onUpdate
           </div>
           
           {isEditing ? (
-            <div className="flex gap-2 justify-center">
+            <div className="flex gap-2 justify-center mb-2">
               <input 
                 type="text" 
                 value={name} 
@@ -40,14 +47,30 @@ const ProfileModal: React.FC<ProfileModalProps> = ({ progress, onClose, onUpdate
                 className="border-b-2 border-emerald-500 text-center font-bold text-xl outline-none w-40"
                 autoFocus
               />
-              <button onClick={handleSave} className="bg-emerald-500 text-white px-3 py-1 rounded-full text-sm">Save</button>
+              <button onClick={handleSaveName} className="bg-emerald-500 text-white px-3 py-1 rounded-full text-sm">Save</button>
             </div>
           ) : (
-            <h2 onClick={() => setIsEditing(true)} className="text-2xl font-bold text-gray-800 flex items-center justify-center gap-2 cursor-pointer hover:bg-gray-50 rounded-lg py-1">
+            <h2 onClick={() => setIsEditing(true)} className="text-2xl font-bold text-gray-800 flex items-center justify-center gap-2 cursor-pointer hover:bg-gray-50 rounded-lg py-1 mb-1">
               {name} <span className="text-xs text-gray-400">✏️</span>
             </h2>
           )}
-          <p className="text-emerald-600 text-sm font-medium">{progress.level} Level</p>
+          
+          {/* Level Switcher */}
+          <div className="flex justify-center gap-2 mt-2">
+            {[UserLevel.BEGINNER, UserLevel.INTERMEDIATE, UserLevel.EXPERT].map((lvl) => (
+                <button
+                    key={lvl}
+                    onClick={() => handleLevelChange(lvl)}
+                    className={`text-[10px] uppercase font-bold px-2 py-1 rounded-full border ${
+                        progress.level === lvl 
+                        ? 'bg-emerald-500 text-white border-emerald-500' 
+                        : 'text-gray-400 border-gray-200 hover:border-emerald-300'
+                    }`}
+                >
+                    {lvl}
+                </button>
+            ))}
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4 mb-6">

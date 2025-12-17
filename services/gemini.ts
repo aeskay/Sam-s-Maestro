@@ -5,7 +5,7 @@ const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const suggestQuizTool: FunctionDeclaration = {
   name: "suggest_quiz",
-  description: "Call this function when the user has demonstrated sufficient understanding of the specific sub-topic lesson and should take a quiz to advance.",
+  description: "Call this function ONLY when the user has completed the Immersion Drill and is ready for the Assessment.",
   parameters: {
     type: Type.OBJECT,
     properties: {
@@ -17,38 +17,55 @@ const suggestQuizTool: FunctionDeclaration = {
   }
 };
 
-// Updated to accept SubTopic
+// Helper: Extract JSON from Markdown code blocks
+const cleanJson = (text: string): string => {
+  const match = text.match(/```json\s*([\s\S]*?)\s*```/) || text.match(/```\s*([\s\S]*?)\s*```/);
+  if (match) {
+    return match[1];
+  }
+  return text;
+};
+
+// Helper: Retry logic
+async function callWithRetry<T>(fn: () => Promise<T>, retries = 3, delay = 1000): Promise<T> {
+  try {
+    return await fn();
+  } catch (error) {
+    if (retries > 0) {
+      await new Promise(res => setTimeout(res, delay));
+      return callWithRetry(fn, retries - 1, delay * 1.5);
+    }
+    throw error;
+  }
+}
+
 const getSystemInstruction = (level: UserLevel, topic?: Topic, subTopic?: SubTopic, userName?: string) => {
   let base = `You are "Sam's Maestro", a friendly, encouraging, and world-class Spanish language tutor. 
-  Your goal is to help the user${userName ? ` named ${userName}` : ''} learn Spanish.
-  Keep your responses concise (under 3-4 sentences).`;
+  Your goal is to help the user${userName ? ` named ${userName}` : ''} master Spanish from absolute zero to native fluency.
+  
+  CORE RULE: EXHAUSTIVE DEPTH. NO SKIMMING.
+  You may only teach ONE concept at a time. Do not dump a list of vocabulary.
+  Keep individual responses concise (2-3 sentences), but cover the topic deeply over multiple turns.`;
 
   if (topic && subTopic) {
-    base += `\n\nCURRENT LESSON: "${topic.title}" -> "${subTopic.title}".
-    DESCRIPTION: ${subTopic.description}.
+    base += `\n\nCURRENT LESSON CONTEXT:
+    [Current Level: ${level} | Module: ${subTopic.title} - ${topic.title}]
+    Description: ${subTopic.description}
     
-    Focus ONLY on the vocabulary and phrases for "${subTopic.title}". 
-    Do not drift to other parts of the main topic yet.
-    
-    PROGRESSION LOGIC:
-    1. Teach the specific concepts of this sub-lesson.
-    2. Correct mistakes gently.
-    3. After 3-5 exchanges where the user correctly uses the specific vocabulary for this sub-lesson, call 'suggest_quiz'.`;
+    YOU MUST FOLLOW THIS 5-STEP LESSON STRUCTURE FOR THIS SUB-TOPIC:
+    1. Vocabulary Injection: Introduce relevant words/phrases gradually.
+    2. Grammar Hook: Explain the specific grammar rule in this context.
+    3. Cultural Nuance: How do natives actually say this? (Slang vs Formal).
+    4. Immersion Drill: Engage the user in a roleplay dialogue.
+    5. Assessment: When they succeed in the drill, call 'suggest_quiz'.
+
+    MANDATORY OUTPUT FORMAT:
+    Start every response with exactly this tag: [${subTopic.title}]
+    Example: "[1.1 The Alphabet] Great work! Now let's look at vowels..."
+    `;
   }
 
-  switch (level) {
-    case UserLevel.BEGINNER:
-      return `${base} 
-      User is Beginner. Explain in English, practice in Spanish. Translate new words immediately.`;
-    case UserLevel.INTERMEDIATE:
-      return `${base} 
-      User is Intermediate. 50/50 English/Spanish.`;
-    case UserLevel.EXPERT:
-      return `${base} 
-      User is Expert. 95% Spanish.`;
-    default:
-      return base;
-  }
+  return base;
 };
 
 export interface ChatResponse {
@@ -65,142 +82,145 @@ export async function sendMessageToGemini(
   subTopic?: SubTopic,
   userName?: string
 ): Promise<ChatResponse> {
-  try {
-    const model = "gemini-2.5-flash";
-    const systemInstruction = getSystemInstruction(level, topic, subTopic, userName);
+  return callWithRetry(async () => {
+    try {
+      const model = "gemini-2.5-flash";
+      const systemInstruction = getSystemInstruction(level, topic, subTopic, userName);
 
-    const recentHistory = history.slice(-10).map(msg => ({
-      role: msg.role,
-      parts: [{ text: msg.text }]
-    }));
+      const recentHistory = history.slice(-10).map(msg => ({
+        role: msg.role,
+        parts: [{ text: msg.text }]
+      }));
 
-    const chat = ai.chats.create({
-      model,
-      history: recentHistory,
-      config: {
-        systemInstruction,
-        temperature: 0.7, 
-        tools: [{ functionDeclarations: [suggestQuizTool] }]
-      }
-    });
+      const chat = ai.chats.create({
+        model,
+        history: recentHistory,
+        config: {
+          systemInstruction,
+          temperature: 0.7, 
+          tools: [{ functionDeclarations: [suggestQuizTool] }]
+        }
+      });
 
-    const result = await chat.sendMessage({ message: newMessage });
-    
-    const functionCall = result.functionCalls?.find(fc => fc.name === 'suggest_quiz');
-    const suggestQuiz = !!functionCall;
-    const suggestionReason = functionCall?.args?.reason as string | undefined;
+      const result = await chat.sendMessage({ message: newMessage });
+      
+      const functionCall = result.functionCalls?.find(fc => fc.name === 'suggest_quiz');
+      const suggestQuiz = !!functionCall;
+      const suggestionReason = functionCall?.args?.reason as string | undefined;
 
-    return {
-      text: result.text || "",
-      suggestQuiz,
-      suggestionReason
-    };
+      return {
+        text: result.text || "",
+        suggestQuiz,
+        suggestionReason
+      };
 
-  } catch (error) {
-    console.error("Gemini Chat Error:", error);
-    return {
-      text: "Lo siento, I encountered an error. Please try again.",
-      suggestQuiz: false
-    };
-  }
+    } catch (error) {
+      console.error("Gemini Chat Error:", error);
+      throw error; // Throw to trigger retry
+    }
+  });
 }
 
-// Updated to generate quiz specific to SubTopic
 export async function generateQuizForTopic(topic: Topic, subTopic: SubTopic, level: UserLevel): Promise<QuizQuestion[]> {
-  try {
-    const prompt = `Generate 3 multiple-choice questions in Spanish to test the user's knowledge of the specific lesson: "${topic.title} - ${subTopic.title}".
-    Context/Vocab: ${subTopic.description}.
-    User Level: ${level}.
-    Return strictly JSON.`;
+  return callWithRetry(async () => {
+    try {
+      // Updated prompt to reflect the deeper curriculum
+      const prompt = `Generate 10 multiple-choice questions in Spanish to test the user's knowledge of the specific sub-module: "${subTopic.title}" (Context: ${topic.title}).
+      Ensure questions cover vocabulary, grammar, and cultural nuances taught in this module.
+      User Level: ${level}.
+      Return strictly a JSON Array. Do not wrap in markdown.`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash",
-      contents: prompt,
-      config: {
-        responseMimeType: "application/json",
-        responseSchema: {
-          type: Type.ARRAY,
-          items: {
-            type: Type.OBJECT,
-            properties: {
-              question: { type: Type.STRING, description: "Question in Spanish" },
-              options: { type: Type.ARRAY, items: { type: Type.STRING } },
-              correctAnswerIndex: { type: Type.INTEGER },
-              explanation: { type: Type.STRING, description: "Explanation in English" }
-            },
-            required: ["question", "options", "correctAnswerIndex", "explanation"]
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                question: { type: Type.STRING, description: "Question in Spanish" },
+                options: { type: Type.ARRAY, items: { type: Type.STRING } },
+                correctAnswerIndex: { type: Type.INTEGER },
+                explanation: { type: Type.STRING, description: "Explanation in English" }
+              },
+              required: ["question", "options", "correctAnswerIndex", "explanation"]
+            }
           }
         }
-      }
-    });
+      });
 
-    if (response.text) {
-      return JSON.parse(response.text) as QuizQuestion[];
+      const text = response.text || "";
+      const cleanedText = cleanJson(text);
+      return JSON.parse(cleanedText) as QuizQuestion[];
+
+    } catch (e) {
+      console.error("Quiz generation failed", e);
+      throw e;
     }
-    throw new Error("No text returned");
-  } catch (e) {
-    console.error("Quiz generation failed", e);
-    return [{
-        question: "Error generating quiz",
-        options: ["OK"],
-        correctAnswerIndex: 0,
-        explanation: "Please try again."
-    }];
-  }
+  });
 }
 
 export async function generateFlashcardsForTopic(topic: Topic, subTopic: SubTopic, level: UserLevel): Promise<Flashcard[]> {
-  try {
-     const prompt = `Generate 5 flashcards for Spanish vocabulary strictly related to: "${subTopic.title}" (${subTopic.description}).
-     User Level: ${level}.
-     Return strictly JSON.`;
+  return callWithRetry(async () => {
+    try {
+      const prompt = `Generate 10 flashcards for Spanish vocabulary strictly related to Module: "${subTopic.title}" (${subTopic.description}).
+      Include a mix of core vocabulary and slang/cultural terms if relevant.
+      User Level: ${level}.
+      Return strictly a JSON Array. Do not wrap in markdown.`;
 
-     const response = await ai.models.generateContent({
-       model: "gemini-2.5-flash",
-       contents: prompt,
-       config: {
-         responseMimeType: "application/json",
-         responseSchema: {
-           type: Type.ARRAY,
-           items: {
-             type: Type.OBJECT,
-             properties: {
-               front: { type: Type.STRING },
-               back: { type: Type.STRING },
-               example: { type: Type.STRING }
-             },
-             required: ["front", "back", "example"]
-           }
-         }
-       }
-     });
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: prompt,
+        config: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                front: { type: Type.STRING },
+                back: { type: Type.STRING },
+                example: { type: Type.STRING }
+              },
+              required: ["front", "back", "example"]
+            }
+          }
+        }
+      });
 
-    if (response.text) {
-      return JSON.parse(response.text) as Flashcard[];
+      const text = response.text || "";
+      const cleanedText = cleanJson(text);
+      return JSON.parse(cleanedText) as Flashcard[];
+    } catch (e) {
+      console.error("Flashcard generation failed", e);
+      throw e;
     }
-    throw new Error("No text returned for flashcards");
-  } catch (e) {
-    console.error("Flashcard generation failed", e);
-    return [];
-  }
+  });
 }
 
 export async function generateSpeechFromText(text: string, voiceName: string = 'Kore'): Promise<string | null> {
-  try {
-    const response = await ai.models.generateContent({
-      model: "gemini-2.5-flash-preview-tts",
-      contents: { parts: [{ text: text }] },
-      config: {
-        responseModalities: [Modality.AUDIO],
-        speechConfig: {
-          voiceConfig: { prebuiltVoiceConfig: { voiceName } }
-        }
-      }
-    });
+  // Strip the [Progress Bar] tag from audio to avoid reading it out loud
+  const cleanText = text.replace(/\[.*?\]/, '').trim();
 
-    return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
-  } catch (error) {
-    console.error("Gemini TTS Error:", error);
-    return null;
-  }
+  return callWithRetry(async () => {
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-2.5-flash-preview-tts",
+        contents: { parts: [{ text: cleanText }] },
+        config: {
+          responseModalities: [Modality.AUDIO],
+          speechConfig: {
+            voiceConfig: { prebuiltVoiceConfig: { voiceName } }
+          }
+        }
+      });
+
+      return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
+    } catch (error) {
+      console.error("Gemini TTS Error:", error);
+      throw error;
+    }
+  }, 2, 500);
 }

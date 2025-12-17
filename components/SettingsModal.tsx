@@ -5,11 +5,19 @@ interface SettingsModalProps {
   progress: UserProgress;
   onClose: () => void;
   onUpdatePreferences: (prefs: UserPreferences) => void;
+  onSkipCurrentLesson?: () => void;
+  onUnlockAll?: () => void;
 }
 
 const VOICES = ['Kore', 'Puck', 'Charon', 'Fenrir', 'Zephyr'] as const;
 
-const SettingsModal: React.FC<SettingsModalProps> = ({ progress, onClose, onUpdatePreferences }) => {
+const SettingsModal: React.FC<SettingsModalProps> = ({ 
+  progress, 
+  onClose, 
+  onUpdatePreferences,
+  onSkipCurrentLesson,
+  onUnlockAll
+}) => {
   const { preferences } = progress;
 
   const handleToggleAutoPlay = () => {
@@ -20,13 +28,9 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ progress, onClose, onUpda
     onUpdatePreferences({ ...preferences, voiceName: voice });
   };
 
-  // Currently we just store speed, implementation of speed control happens in audioUtils if needed, 
-  // but for now we just store the preference.
-  // Note: Web Audio API playbackRate is easiest way to change speed without regenerating audio.
-
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
-      <div className="bg-white rounded-[2rem] p-6 w-full max-w-sm shadow-2xl relative overflow-hidden">
+      <div className="bg-white rounded-[2rem] p-6 w-full max-w-sm shadow-2xl relative overflow-hidden flex flex-col max-h-[90vh]">
         <button onClick={onClose} className="absolute top-4 right-4 text-gray-400 hover:text-gray-600">
            ✕
         </button>
@@ -36,7 +40,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ progress, onClose, onUpda
           <p className="text-emerald-600 text-sm">Customize your learning</p>
         </div>
 
-        <div className="space-y-6">
+        <div className="space-y-6 overflow-y-auto pr-2 pb-4">
           
           {/* Auto Play */}
           <div className="flex items-center justify-between bg-gray-50 p-4 rounded-2xl border border-gray-100">
@@ -79,9 +83,32 @@ const SettingsModal: React.FC<SettingsModalProps> = ({ progress, onClose, onUpda
               ))}
             </div>
           </div>
+
+          {/* Troubleshooting Zone */}
+          <div className="bg-red-50 p-4 rounded-2xl border border-red-100">
+             <div className="font-bold text-red-800 mb-3 flex items-center gap-2 text-sm">
+               🛠️ Troubleshooting
+            </div>
+            <div className="space-y-2">
+              <button 
+                onClick={onSkipCurrentLesson}
+                className="w-full bg-white border border-red-200 text-red-600 text-xs font-bold py-3 rounded-xl hover:bg-red-100 transition-colors text-left px-4 flex justify-between items-center"
+              >
+                <span>Force Complete Current Lesson</span>
+                <span>⏩</span>
+              </button>
+               <button 
+                onClick={onUnlockAll}
+                className="w-full bg-white border border-red-200 text-red-600 text-xs font-bold py-3 rounded-xl hover:bg-red-100 transition-colors text-left px-4 flex justify-between items-center"
+              >
+                <span>Unlock All Topics</span>
+                <span>🔓</span>
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div className="mt-8 text-center">
+        <div className="mt-4 text-center">
             <button 
               onClick={onClose} 
               className="bg-gray-800 text-white font-bold py-3 px-8 rounded-full shadow-lg active:scale-95 transition-transform"

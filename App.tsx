@@ -3,6 +3,7 @@ import { UserLevel, Message, AppView, Topic, SubTopic, QuizQuestion, Flashcard, 
 import { loadProgress, saveProgress, completeSubTopic, saveTopicHistory } from './services/storage';
 import { sendMessageToGemini, generateSpeechFromText, generateQuizForTopic, generateFlashcardsForTopic } from './services/gemini';
 import { decodeAudioData, playAudioBuffer } from './services/audioUtils';
+import { CURRICULUM } from './services/curriculum';
 
 import LevelSelector from './components/LevelSelector';
 import Dashboard from './components/Dashboard';
@@ -71,6 +72,12 @@ const App: React.FC = () => {
     const newProgress = { ...progress, userName: name };
     setProgress(newProgress);
     saveProgress(newProgress);
+  };
+
+  const handleUpdateLevel = (level: UserLevel) => {
+     const newProgress = { ...progress, level };
+     setProgress(newProgress);
+     saveProgress(newProgress);
   };
 
   const handleUpdatePreferences = (prefs: UserPreferences) => {
@@ -148,9 +155,40 @@ const App: React.FC = () => {
 
     } catch (e) {
       console.error(e);
+      // Add error message to chat
+       const errorMsg: Message = {
+        id: 'error-' + Date.now(),
+        role: 'model',
+        text: "Lo siento, I lost connection properly. Please try saying that again!",
+        timestamp: Date.now()
+      };
+      setMessages(prev => [...prev, errorMsg]);
     } finally {
       setIsTyping(false);
     }
+  };
+
+  // --- Force/Troubleshoot Handlers ---
+  const handleSkipCurrentLesson = () => {
+    if (!currentTopic || !currentSubTopic) {
+      alert("You need to be in a lesson to skip it.");
+      return;
+    }
+    const updated = completeSubTopic(currentTopic.id, currentSubTopic.id, progress);
+    setProgress(updated);
+    alert(`Skipped: ${currentSubTopic.title}. Topic Marked Complete.`);
+    setShowSettings(false);
+    setView(AppView.DASHBOARD);
+  };
+
+  const handleUnlockAll = () => {
+    const allTopicIds = CURRICULUM.map(t => t.id);
+    const updated = { ...progress, unlockedTopicIds: allTopicIds };
+    setProgress(updated);
+    saveProgress(updated);
+    alert("All Topics Unlocked!");
+    setShowSettings(false);
+    setView(AppView.DASHBOARD);
   };
 
   // --- Game Handlers ---
@@ -161,10 +199,14 @@ const App: React.FC = () => {
     setQuizSuggestion(null);
     try {
       const questions = await generateQuizForTopic(currentTopic, currentSubTopic, progress.level);
-      setQuizQuestions(questions);
-      setView(AppView.QUIZ);
+      if (questions && questions.length > 0) {
+          setQuizQuestions(questions);
+          setView(AppView.QUIZ);
+      } else {
+        throw new Error("Empty quiz generated");
+      }
     } catch (e) {
-      alert("Failed to load quiz.");
+      alert("Failed to load quiz. Please try again or use Settings to Skip.");
     } finally {
       setIsLoadingGame(false);
     }
@@ -176,8 +218,12 @@ const App: React.FC = () => {
     setShowGameMenu(false);
     try {
       const cards = await generateFlashcardsForTopic(currentTopic, currentSubTopic, progress.level);
-      setFlashcards(cards);
-      setView(AppView.FLASHCARDS);
+      if (cards && cards.length > 0) {
+        setFlashcards(cards);
+        setView(AppView.FLASHCARDS);
+      } else {
+        throw new Error("Empty flashcards generated");
+      }
     } catch (e) {
       alert("Failed to load flashcards.");
     } finally {
@@ -186,13 +232,16 @@ const App: React.FC = () => {
   };
 
   const handleQuizComplete = (score: number) => {
-    // If they pass the quiz (2/3 correct)
-    if (score >= 2 && currentTopic && currentSubTopic) {
+    // If they pass the quiz (70% or 7/10)
+    // Note: If quiz gen failed and returned fallback, length might be small, so use ratio.
+    const passingScore = Math.ceil(quizQuestions.length * 0.7);
+    
+    if (score >= passingScore && currentTopic && currentSubTopic) {
       const updated = completeSubTopic(currentTopic.id, currentSubTopic.id, progress);
       setProgress(updated);
-      alert(`¡Muy bien! Sub-topic complete. +50 XP`);
+      alert(`¡Muy bien! You got ${score}/${quizQuestions.length}. Lesson complete!`);
     } else {
-      alert(`Nice try! You got ${score}/3. Try again to advance.`);
+      alert(`Nice try! You got ${score}/${quizQuestions.length}. You need ${passingScore} to pass.`);
     }
     setView(AppView.DASHBOARD);
   };
@@ -267,6 +316,7 @@ const App: React.FC = () => {
             progress={progress} 
             onClose={() => setShowProfile(false)} 
             onUpdateName={handleUpdateName} 
+            onUpdateLevel={handleUpdateLevel}
           />
         )}
         {showSettings && (
@@ -274,6 +324,8 @@ const App: React.FC = () => {
             progress={progress}
             onClose={() => setShowSettings(false)}
             onUpdatePreferences={handleUpdatePreferences}
+            onSkipCurrentLesson={undefined} // Can't skip from dashboard easily without context selection
+            onUnlockAll={handleUnlockAll}
           />
         )}
         <Dashboard 
@@ -310,41 +362,54 @@ const App: React.FC = () => {
           <span className="text-xs text-emerald-600 font-medium truncate">{currentSubTopic?.title}</span>
         </div>
         
-        <div className="relative">
-          <button 
-            onClick={() => setShowGameMenu(!showGameMenu)}
-            disabled={isLoadingGame}
-            className={`flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-full transition-all flex-shrink-0 ${
-              isLoadingGame 
-                ? 'bg-gray-100 text-gray-400'
-                : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
-            }`}
-          >
-             {isLoadingGame ? 'Loading...' : '🎮 Play'}
-          </button>
+        <div className="flex items-center gap-2">
+            {/* Play Menu Button */}
+            <div className="relative">
+              <button 
+                onClick={() => setShowGameMenu(!showGameMenu)}
+                disabled={isLoadingGame}
+                className={`flex items-center gap-1 text-xs font-bold px-3 py-1.5 rounded-full transition-all flex-shrink-0 ${
+                  isLoadingGame 
+                    ? 'bg-gray-100 text-gray-400'
+                    : 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200'
+                }`}
+              >
+                 {isLoadingGame ? 'Loading...' : '🎮 Play'}
+              </button>
 
-          {showGameMenu && (
-             <>
-               <div className="fixed inset-0 z-10" onClick={() => setShowGameMenu(false)}></div>
-               <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 p-2 z-20 animate-fade-in">
-                  <button 
-                    onClick={handleStartFlashcards}
-                    className="w-full text-left px-4 py-3 rounded-lg hover:bg-emerald-50 text-gray-700 text-sm font-medium flex items-center gap-2"
-                  >
-                    🎴 Flashcards
-                  </button>
-                  <button 
-                    onClick={handleStartQuiz}
-                    disabled={messages.length < 2}
-                    className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center gap-2 ${
-                        messages.length < 2 ? 'text-gray-300' : 'hover:bg-emerald-50 text-gray-700'
-                    }`}
-                  >
-                    📝 Take Quiz
-                  </button>
-               </div>
-             </>
-          )}
+              {showGameMenu && (
+                 <>
+                   <div className="fixed inset-0 z-10" onClick={() => setShowGameMenu(false)}></div>
+                   <div className="absolute right-0 top-full mt-2 w-48 bg-white rounded-xl shadow-xl border border-gray-100 p-2 z-20 animate-fade-in">
+                      <button 
+                        onClick={handleStartFlashcards}
+                        className="w-full text-left px-4 py-3 rounded-lg hover:bg-emerald-50 text-gray-700 text-sm font-medium flex items-center gap-2"
+                      >
+                        🎴 Flashcards
+                      </button>
+                      <button 
+                        onClick={handleStartQuiz}
+                        disabled={messages.length < 2}
+                        className={`w-full text-left px-4 py-3 rounded-lg text-sm font-medium flex items-center gap-2 ${
+                            messages.length < 2 ? 'text-gray-300' : 'hover:bg-emerald-50 text-gray-700'
+                        }`}
+                      >
+                        📝 Take Quiz
+                      </button>
+                   </div>
+                 </>
+              )}
+            </div>
+            
+            {/* Chat View Settings Button */}
+            <button 
+              onClick={() => setShowSettings(true)}
+              className="p-1 text-gray-400 hover:text-gray-600"
+            >
+               <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
+                <path fillRule="evenodd" d="M11.078 2.25c-.917 0-1.699.663-1.85 1.567L9.05 4.889c-.02.12-.115.26-.297.348a7.493 7.493 0 00-.986.57c-.166.115-.334.126-.45.083L6.3 5.508a1.875 1.875 0 00-2.282.819l-.922 1.597a1.875 1.875 0 00.432 2.385l.84.692c.095.078.17.229.154.43a7.598 7.598 0 000 1.139c.015.2-.059.352-.153.43l-.841.692a1.875 1.875 0 00-.432 2.385l.922 1.597a1.875 1.875 0 002.282.818l1.019-.382c.115-.043.283-.031.45.082.312.214.641.405.985.57.182.088.277.228.297.35l.178 1.071c.151.904.933 1.567 1.85 1.567h1.844c.916 0 1.699-.663 1.85-1.567l.178-1.072c.02-.12.114-.26.297-.349.344-.165.673-.356.985-.57.167-.114.335-.125.45-.082l1.02.382a1.875 1.875 0 002.28-.819l.922-1.597a1.875 1.875 0 00-.432-2.385l-.84-.692c-.095-.078-.17-.229-.154-.43a7.614 7.614 0 000-1.139c-.016-.2.059-.352.153-.43l.84-.692c.708-.582.891-1.59.433-2.385l-.922-1.597a1.875 1.875 0 00-2.282-.818l-1.02.382c-.114.043-.282.031-.449-.083a7.49 7.49 0 00-.985-.57c-.183-.087-.277-.227-.297-.348l-.179-1.072a1.875 1.875 0 00-1.85-1.567h-1.843zM12 15.75a3.75 3.75 0 100-7.5 3.75 3.75 0 000 7.5z" clipRule="evenodd" />
+              </svg>
+            </button>
         </div>
       </header>
 
@@ -378,6 +443,17 @@ const App: React.FC = () => {
       </div>
 
       <InputArea onSend={handleSendMessage} disabled={isTyping} />
+
+      {/* Chat Specific Settings Modal Overlay */}
+      {showSettings && (
+        <SettingsModal
+            progress={progress}
+            onClose={() => setShowSettings(false)}
+            onUpdatePreferences={handleUpdatePreferences}
+            onSkipCurrentLesson={handleSkipCurrentLesson}
+            onUnlockAll={handleUnlockAll}
+        />
+      )}
     </div>
   );
 };

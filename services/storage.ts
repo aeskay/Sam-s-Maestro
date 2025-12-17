@@ -1,7 +1,7 @@
 import { UserProgress, Message } from "../types";
 import { CURRICULUM } from "./curriculum";
 
-const STORAGE_KEY = 'sams_maestro_progress_v5'; // Incremented version
+const STORAGE_KEY = 'sams_maestro_progress_v6'; // Incremented version to reset bad state if needed
 
 const INITIAL_PROGRESS: UserProgress = {
   userName: null,
@@ -12,7 +12,8 @@ const INITIAL_PROGRESS: UserProgress = {
   wordsLearned: 0,
   completedTopicIds: [],
   completedSubTopicIds: [],
-  unlockedTopicIds: ['greetings'],
+  // CRITICAL FIX: Match the ID from the new Curriculum (module-1), not the old one (greetings)
+  unlockedTopicIds: ['module-1'], 
   topicHistory: {},
   preferences: {
     autoPlayAudio: false,
@@ -60,8 +61,18 @@ export const loadProgress = (): UserProgress => {
           ...(parsed.preferences || {})
         },
         // Ensure array exists for older save versions
-        completedSubTopicIds: parsed.completedSubTopicIds || []
+        completedSubTopicIds: parsed.completedSubTopicIds || [],
+        // Fallback: If unlockedTopicIds is empty or has old IDs, ensure module-1 is unlocked
+        unlockedTopicIds: (parsed.unlockedTopicIds && parsed.unlockedTopicIds.length > 0) 
+          ? parsed.unlockedTopicIds 
+          : ['module-1']
       };
+      
+      // Fix for migration from old ID 'greetings' to 'module-1'
+      if (progress.unlockedTopicIds.includes('greetings') && !progress.unlockedTopicIds.includes('module-1')) {
+          progress.unlockedTopicIds.push('module-1');
+      }
+
     } catch (e) {
       console.error("Failed to parse progress", e);
     }

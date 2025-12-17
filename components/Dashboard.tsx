@@ -21,10 +21,114 @@ const Dashboard: React.FC<DashboardProps> = ({ progress, onSelectTopic, onReset,
     }
   };
 
+  const renderSection = (title: string, level: UserLevel, colorClass: string) => {
+    const topics = CURRICULUM.filter(t => t.requiredLevel === level);
+    if (topics.length === 0) return null;
+
+    return (
+      <div className="mb-8">
+        <h2 className={`px-4 text-sm font-bold uppercase tracking-wider mb-3 ${colorClass}`}>{title} Modules</h2>
+        <div className="space-y-3">
+          {topics.map((topic) => {
+            const isUnlocked = progress.unlockedTopicIds.includes(topic.id);
+            const isTopicCompleted = progress.completedTopicIds.includes(topic.id);
+            const isExpanded = expandedTopicId === topic.id;
+            
+            const totalSub = topic.subTopics.length;
+            const completedSub = topic.subTopics.filter(st => progress.completedSubTopicIds.includes(st.id)).length;
+            const progressPercent = Math.round((completedSub / totalSub) * 100);
+
+            return (
+              <div key={topic.id} className="relative transition-all duration-300">
+                <button
+                  onClick={() => isUnlocked && toggleTopic(topic.id)}
+                  disabled={!isUnlocked}
+                  className={`w-full relative flex items-center p-4 rounded-2xl border text-left z-10 transition-all ${
+                    isExpanded ? 'bg-white border-emerald-300 shadow-md ring-2 ring-emerald-100 mb-2' : 
+                    isUnlocked ? 'bg-white border-gray-100 shadow-sm hover:border-emerald-200' : 
+                    'bg-gray-100 border-transparent opacity-60'
+                  }`}
+                >
+                  <div className={`w-10 h-10 rounded-lg flex items-center justify-center text-xl mr-4 flex-shrink-0 transition-colors ${
+                    isTopicCompleted ? 'bg-emerald-100' : isUnlocked ? 'bg-indigo-50' : 'bg-gray-200'
+                  }`}>
+                    {isTopicCompleted ? '✅' : topic.emoji}
+                  </div>
+                  
+                  <div className="flex-1 min-w-0 pr-8">
+                    <h3 className={`font-bold text-sm truncate ${isUnlocked ? 'text-gray-800' : 'text-gray-400'}`}>
+                      {topic.title}
+                    </h3>
+                    {isUnlocked && (
+                       <div className="flex items-center gap-2 mt-1">
+                         <div className="h-1 flex-1 bg-gray-100 rounded-full overflow-hidden max-w-[80px]">
+                           <div className="h-full bg-emerald-400" style={{ width: `${progressPercent}%` }} />
+                         </div>
+                         <p className="text-[10px] text-gray-400">{completedSub}/{totalSub}</p>
+                      </div>
+                    )}
+                  </div>
+
+                  {!isUnlocked && <div className="absolute right-4 text-gray-400 text-xs">🔒</div>}
+                  
+                  {isUnlocked && (
+                    <div className={`absolute right-4 transition-transform ${isExpanded ? 'rotate-180' : ''} text-gray-400`}>
+                      ▼
+                    </div>
+                  )}
+                </button>
+
+                {isExpanded && (
+                  <div className="bg-white/80 backdrop-blur-sm border-l-2 border-emerald-100 ml-6 pl-2 space-y-2 animate-fade-in my-2">
+                    {topic.subTopics.map((sub, idx) => {
+                      const isSubCompleted = progress.completedSubTopicIds.includes(sub.id);
+                      // Logic: Unlock if previous subtopic is done OR it's the first one in this topic
+                      // Note: Strictly speaking, we should check previous *topics* too, but `unlockedTopicIds` handles the parent lock.
+                      // Within the topic, we enforce linear progression:
+                      const isSubUnlocked = idx === 0 || progress.completedSubTopicIds.includes(topic.subTopics[idx - 1].id);
+
+                      return (
+                        <button
+                          key={sub.id}
+                          onClick={() => isSubUnlocked && onSelectTopic(topic, sub)}
+                          disabled={!isSubUnlocked}
+                          className={`w-full flex items-center justify-between p-3 rounded-xl text-left transition-all ${
+                            isSubCompleted ? 'bg-emerald-50 text-emerald-800' :
+                            isSubUnlocked ? 'bg-white hover:bg-gray-50 border border-gray-100 text-gray-800' :
+                            'bg-gray-50 text-gray-400 border border-transparent'
+                          }`}
+                        >
+                           <div className="flex-1">
+                             <h4 className="font-bold text-xs">{sub.title}</h4>
+                             <p className="text-[10px] opacity-70 truncate">{sub.description}</p>
+                           </div>
+                           
+                           <div className="ml-2">
+                              {isSubCompleted ? (
+                                <span className="text-emerald-500 text-sm">✓</span>
+                              ) : isSubUnlocked ? (
+                                <span className="bg-emerald-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">GO</span>
+                              ) : (
+                                <span className="text-gray-300 text-xs">🔒</span>
+                              )}
+                           </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
       {/* Header Stats */}
-      <div className="bg-emerald-600 pt-8 pb-12 px-6 rounded-b-[2.5rem] shadow-lg text-white relative">
+      <div className="bg-emerald-600 pt-8 pb-8 px-6 rounded-b-[2rem] shadow-lg text-white relative flex-shrink-0 z-20">
         <button 
           onClick={onOpenSettings}
           className="absolute top-8 right-6 text-emerald-200 hover:text-white transition-colors"
@@ -36,8 +140,8 @@ const Dashboard: React.FC<DashboardProps> = ({ progress, onSelectTopic, onReset,
 
         <div className="flex justify-between items-start mb-6">
            <div>
-             <h1 className="text-2xl font-bold">Sam's Maestro</h1>
-             <p className="text-emerald-200 text-sm">Welcome back, {progress.userName || 'Student'}!</p>
+             <h1 className="text-2xl font-bold">The Maestro Map</h1>
+             <p className="text-emerald-200 text-sm">{progress.userName || 'Student'}'s Journey</p>
            </div>
            
            <button onClick={onOpenProfile} className="relative group mr-8">
@@ -68,100 +172,11 @@ const Dashboard: React.FC<DashboardProps> = ({ progress, onSelectTopic, onReset,
       </div>
 
       {/* Curriculum Path */}
-      <div className="flex-1 px-4 -mt-6 pb-safe-area-inset-bottom">
-        <div className="space-y-4 max-w-md mx-auto">
-          {CURRICULUM.map((topic) => {
-            const isUnlocked = progress.unlockedTopicIds.includes(topic.id);
-            const isTopicCompleted = progress.completedTopicIds.includes(topic.id);
-            const isExpanded = expandedTopicId === topic.id;
-            
-            // Calculate progress for this topic
-            const totalSub = topic.subTopics.length;
-            const completedSub = topic.subTopics.filter(st => progress.completedSubTopicIds.includes(st.id)).length;
-            const progressPercent = Math.round((completedSub / totalSub) * 100);
-
-            return (
-              <div key={topic.id} className="relative transition-all duration-300">
-                {/* Main Topic Card */}
-                <button
-                  onClick={() => isUnlocked && toggleTopic(topic.id)}
-                  disabled={!isUnlocked}
-                  className={`w-full relative flex items-center p-4 rounded-2xl border-2 text-left z-10 transition-all ${
-                    isExpanded ? 'bg-white border-emerald-200 shadow-md ring-2 ring-emerald-400 ring-offset-1 mb-2' : 
-                    isUnlocked ? 'bg-white border-gray-100 shadow-sm' : 
-                    'bg-gray-100 border-transparent opacity-60'
-                  }`}
-                >
-                  <div className={`w-12 h-12 rounded-xl flex items-center justify-center text-2xl mr-4 flex-shrink-0 transition-colors ${
-                    isTopicCompleted ? 'bg-emerald-100' : isUnlocked ? 'bg-indigo-50' : 'bg-gray-200'
-                  }`}>
-                    {isTopicCompleted ? '✅' : topic.emoji}
-                  </div>
-                  
-                  <div className="flex-1 min-w-0 pr-8">
-                    <h3 className={`font-bold truncate ${isUnlocked ? 'text-gray-800' : 'text-gray-400'}`}>
-                      {topic.title}
-                    </h3>
-                    <div className="flex items-center gap-2 mt-1">
-                       {isUnlocked && (
-                         <div className="h-1.5 flex-1 bg-gray-100 rounded-full overflow-hidden max-w-[100px]">
-                           <div className="h-full bg-emerald-400" style={{ width: `${progressPercent}%` }} />
-                         </div>
-                       )}
-                       <p className="text-xs text-gray-500">{completedSub}/{totalSub}</p>
-                    </div>
-                  </div>
-
-                  {!isUnlocked && <div className="absolute right-4 text-gray-400">🔒</div>}
-                  
-                  {isUnlocked && (
-                    <div className={`absolute right-4 transition-transform ${isExpanded ? 'rotate-180' : ''} text-gray-400`}>
-                      ▼
-                    </div>
-                  )}
-                </button>
-
-                {/* Sub-Topics List (Accordion) */}
-                {isExpanded && (
-                  <div className="bg-white/80 backdrop-blur-sm border border-emerald-100 rounded-2xl p-2 ml-4 space-y-2 animate-fade-in shadow-inner">
-                    {topic.subTopics.map((sub, idx) => {
-                      const isSubCompleted = progress.completedSubTopicIds.includes(sub.id);
-                      // Logic: Unlock if previous subtopic is done OR it's the first one
-                      const isSubUnlocked = idx === 0 || progress.completedSubTopicIds.includes(topic.subTopics[idx - 1].id);
-
-                      return (
-                        <button
-                          key={sub.id}
-                          onClick={() => isSubUnlocked && onSelectTopic(topic, sub)}
-                          disabled={!isSubUnlocked}
-                          className={`w-full flex items-center justify-between p-3 rounded-xl text-left transition-all ${
-                            isSubCompleted ? 'bg-emerald-50 text-emerald-800' :
-                            isSubUnlocked ? 'bg-white hover:bg-gray-50 border border-gray-100' :
-                            'bg-gray-50 text-gray-400 border border-transparent'
-                          }`}
-                        >
-                           <div className="flex-1">
-                             <h4 className="font-bold text-sm">{idx + 1}. {sub.title}</h4>
-                             <p className="text-xs opacity-80 truncate">{sub.description}</p>
-                           </div>
-                           
-                           <div className="ml-3">
-                              {isSubCompleted ? (
-                                <span className="text-emerald-500 text-lg">✓</span>
-                              ) : isSubUnlocked ? (
-                                <span className="bg-emerald-500 text-white text-[10px] font-bold px-2 py-1 rounded-full">PLAY</span>
-                              ) : (
-                                <span className="text-gray-300 text-sm">🔒</span>
-                              )}
-                           </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+      <div className="flex-1 px-4 pb-safe-area-inset-bottom overflow-y-auto z-10 pt-4">
+        <div className="max-w-md mx-auto pb-8">
+          {renderSection("Beginner (A1/A2)", UserLevel.BEGINNER, "text-emerald-600")}
+          {renderSection("Intermediate (B1/B2)", UserLevel.INTERMEDIATE, "text-indigo-600")}
+          {renderSection("Expert (C1/C2)", UserLevel.EXPERT, "text-violet-600")}
         </div>
       </div>
     </div>
