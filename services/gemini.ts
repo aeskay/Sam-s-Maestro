@@ -1,7 +1,22 @@
-import { GoogleGenAI, Modality, Type } from "@google/genai";
+import { GoogleGenAI, Modality, Type, FunctionDeclaration } from "@google/genai";
 import { UserLevel, Message, Topic, QuizQuestion, Flashcard } from "../types";
 
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+
+// Define the tool for the model to use
+const suggestQuizTool: FunctionDeclaration = {
+  name: "suggest_quiz",
+  description: "Call this function when the user has demonstrated sufficient understanding of the current topic and should take a quiz to advance.",
+  parameters: {
+    type: Type.OBJECT,
+    properties: {
+      reason: {
+        type: Type.STRING,
+        description: "A short encouraging reason why they are ready."
+      }
+    }
+  }
+};
 
 // System instructions based on user level and Topic
 const getSystemInstruction = (level: UserLevel, topic?: Topic, userName?: string) => {
@@ -13,7 +28,11 @@ const getSystemInstruction = (level: UserLevel, topic?: Topic, userName?: string
   if (topic) {
     base += `\n\nCURRENT LESSON TOPIC: "${topic.title}" - ${topic.description}.
     Focus the conversation strictly on this topic. Introduce vocabulary related to this topic.
-    If the user strays, gently guide them back to ${topic.title}.`;
+    
+    IMPORTANT PROGRESSION LOGIC:
+    1. Assess the user's responses.
+    2. If the user has successfully exchanged 4-5 messages using the topic's vocabulary correctly, OR if they explicitly ask to move on, you MUST call the 'suggest_quiz' tool.
+    3. Do not just say "take the quiz", actually call the function.`;
   }
 
   switch (level) {
@@ -34,13 +53,19 @@ const getSystemInstruction = (level: UserLevel, topic?: Topic, userName?: string
   }
 };
 
+export interface ChatResponse {
+  text: string;
+  suggestQuiz: boolean;
+  suggestionReason?: string;
+}
+
 export async function sendMessageToGemini(
   history: Message[], 
   newMessage: string, 
   level: UserLevel,
   topic?: Topic,
   userName?: string
-): Promise<string> {
+): Promise<ChatResponse> {
   try {
     const model = "gemini-2.5-flash";
     const systemInstruction = getSystemInstruction(level, topic, userName);
@@ -56,14 +81,29 @@ export async function sendMessageToGemini(
       config: {
         systemInstruction,
         temperature: 0.7, 
+        tools: [{ functionDeclarations: [suggestQuizTool] }]
       }
     });
 
     const result = await chat.sendMessage({ message: newMessage });
-    return result.text || "¡Hola! I'm having trouble connecting. ¿Puedes repetir?";
+    
+    // Check for function calls
+    const functionCall = result.functionCalls?.find(fc => fc.name === 'suggest_quiz');
+    const suggestQuiz = !!functionCall;
+    const suggestionReason = functionCall?.args?.reason as string | undefined;
+
+    return {
+      text: result.text || "",
+      suggestQuiz,
+      suggestionReason
+    };
+
   } catch (error) {
     console.error("Gemini Chat Error:", error);
-    return "Lo siento, I encountered an error. Please try again.";
+    return {
+      text: "Lo siento, I encountered an error. Please try again.",
+      suggestQuiz: false
+    };
   }
 }
 
