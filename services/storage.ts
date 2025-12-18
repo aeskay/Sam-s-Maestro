@@ -1,7 +1,8 @@
+
 import { UserProgress, Message } from "../types";
 import { CURRICULUM } from "./curriculum";
 
-const STORAGE_KEY = 'sams_maestro_progress_v6'; // Incremented version to reset bad state if needed
+const STORAGE_KEY = 'sams_maestro_progress_v6';
 
 const INITIAL_PROGRESS: UserProgress = {
   userName: null,
@@ -12,7 +13,6 @@ const INITIAL_PROGRESS: UserProgress = {
   wordsLearned: 0,
   completedTopicIds: [],
   completedSubTopicIds: [],
-  // CRITICAL FIX: Match the ID from the new Curriculum (module-1), not the old one (greetings)
   unlockedTopicIds: ['module-1'], 
   topicHistory: {},
   preferences: {
@@ -60,15 +60,12 @@ export const loadProgress = (): UserProgress => {
           ...INITIAL_PROGRESS.preferences,
           ...(parsed.preferences || {})
         },
-        // Ensure array exists for older save versions
         completedSubTopicIds: parsed.completedSubTopicIds || [],
-        // Fallback: If unlockedTopicIds is empty or has old IDs, ensure module-1 is unlocked
         unlockedTopicIds: (parsed.unlockedTopicIds && parsed.unlockedTopicIds.length > 0) 
           ? parsed.unlockedTopicIds 
           : ['module-1']
       };
       
-      // Fix for migration from old ID 'greetings' to 'module-1'
       if (progress.unlockedTopicIds.includes('greetings') && !progress.unlockedTopicIds.includes('module-1')) {
           progress.unlockedTopicIds.push('module-1');
       }
@@ -78,7 +75,6 @@ export const loadProgress = (): UserProgress => {
     }
   }
   
-  // Calculate Streak
   const today = new Date().toDateString();
   const lastLogin = progress.lastLoginDate ? new Date(progress.lastLoginDate).toDateString() : null;
 
@@ -100,12 +96,8 @@ export const loadProgress = (): UserProgress => {
   return progress;
 };
 
-// Returns updated progress
 export const completeSubTopic = (topicId: string, subTopicId: string, currentProgress: UserProgress): UserProgress => {
-  // 1. Mark subtopic complete
   const newCompletedSubTopics = [...new Set([...currentProgress.completedSubTopicIds, subTopicId])];
-  
-  // 2. Check if whole Topic is complete
   const topic = CURRICULUM.find(t => t.id === topicId);
   let newCompletedTopics = [...currentProgress.completedTopicIds];
   let newUnlockedTopics = [...currentProgress.unlockedTopicIds];
@@ -116,8 +108,6 @@ export const completeSubTopic = (topicId: string, subTopicId: string, currentPro
     if (allSubTopicsDone) {
       if (!newCompletedTopics.includes(topicId)) {
         newCompletedTopics.push(topicId);
-        
-        // Unlock next Topic
         const currentIdx = CURRICULUM.findIndex(t => t.id === topicId);
         const nextTopic = CURRICULUM[currentIdx + 1];
         if (nextTopic && !newUnlockedTopics.includes(nextTopic.id)) {
@@ -132,7 +122,7 @@ export const completeSubTopic = (topicId: string, subTopicId: string, currentPro
     completedSubTopicIds: newCompletedSubTopics,
     completedTopicIds: newCompletedTopics,
     unlockedTopicIds: newUnlockedTopics,
-    xp: currentProgress.xp + 50, // XP for subtopic
+    xp: currentProgress.xp + 50,
     wordsLearned: currentProgress.wordsLearned + 5
   };
 
@@ -147,6 +137,18 @@ export const saveTopicHistory = (progress: UserProgress, subTopicId: string, mes
       ...progress.topicHistory,
       [subTopicId]: messages
     }
+  };
+  saveProgress(updated);
+  return updated;
+};
+
+export const clearTopicHistory = (progress: UserProgress, subTopicId: string): UserProgress => {
+  const newHistory = { ...progress.topicHistory };
+  delete newHistory[subTopicId];
+  
+  const updated = {
+    ...progress,
+    topicHistory: newHistory
   };
   saveProgress(updated);
   return updated;

@@ -1,6 +1,7 @@
+
 import { useState, useEffect, useRef } from 'react';
 import { UserLevel, Message, AppView, Topic, SubTopic, QuizQuestion, Flashcard, UserPreferences } from './types';
-import { loadProgress, saveProgress, completeSubTopic, saveTopicHistory } from './services/storage';
+import { loadProgress, saveProgress, completeSubTopic, saveTopicHistory, clearTopicHistory } from './services/storage';
 import { sendMessageToGemini, generateSpeechFromText, generateQuizForTopic, generateFlashcardsForTopic } from './services/gemini';
 import { decodeAudioData, playAudioBuffer } from './services/audioUtils';
 import { CURRICULUM } from './services/curriculum';
@@ -92,7 +93,6 @@ const App: React.FC = () => {
     setView(AppView.CHAT);
     setQuizSuggestion(null);
     
-    // Load history for specific SubTopic
     const existingHistory = progress.topicHistory?.[subTopic.id];
     
     if (existingHistory && existingHistory.length > 0) {
@@ -115,8 +115,7 @@ const App: React.FC = () => {
     if (!currentTopic || !currentSubTopic) return;
     setQuizSuggestion(null);
 
-    // Capture the history BEFORE we add the new message
-    const historyBeforeCurrentMessage = [...messages];
+    const historySnapshot = [...messages];
     
     const newUserMsg: Message = { id: Date.now().toString(), role: 'user', text, timestamp: Date.now() };
     const messagesAfterUser = [...messages, newUserMsg];
@@ -127,9 +126,8 @@ const App: React.FC = () => {
     setIsTyping(true);
 
     try {
-      // Pass the previous history to avoid consecutive user turns in the API request
       const response = await sendMessageToGemini(
-        historyBeforeCurrentMessage, 
+        historySnapshot, 
         text, 
         progress.level!, 
         currentTopic, 
@@ -158,13 +156,12 @@ const App: React.FC = () => {
         handlePlayAudio(newAiMsg, true); 
       }
 
-    } catch (e) {
-      console.error("Gemini Chat Error:", e);
-      // Add error message to chat
-       const errorMsg: Message = {
+    } catch (e: any) {
+      console.error("AI Maestro Error Details:", e);
+      const errorMsg: Message = {
         id: 'error-' + Date.now(),
         role: 'model',
-        text: "Lo siento, I lost connection properly. Please check your API configuration or try again!",
+        text: `Lo siento, I lost connection properly. (Error: ${e.message || 'Unknown'}). Please check your internet or retry!`,
         timestamp: Date.now()
       };
       setMessages(prev => [...prev, errorMsg]);
@@ -184,6 +181,28 @@ const App: React.FC = () => {
     alert(`Skipped: ${currentSubTopic.title}. Topic Marked Complete.`);
     setShowSettings(false);
     setView(AppView.DASHBOARD);
+  };
+
+  const handleRestartLesson = () => {
+    if (!currentTopic || !currentSubTopic) return;
+    
+    if (confirm(`Restarting will clear your chat with the Maestro for this lesson. Are you sure?`)) {
+      const updated = clearTopicHistory(progress, currentSubTopic.id);
+      setProgress(updated);
+      
+      // Reset view with initial message
+      const initialMessage: Message = {
+        id: `init-${currentSubTopic.id}-${Date.now()}`,
+        role: 'model',
+        text: `¡Hola! Let's start "${currentSubTopic.title}" again. ${currentSubTopic.description} Vamos!`,
+        timestamp: Date.now()
+      };
+      setMessages([initialMessage]);
+      saveTopicHistory(updated, currentSubTopic.id, [initialMessage]);
+      
+      setShowSettings(false);
+      setQuizSuggestion(null);
+    }
   };
 
   const handleUnlockAll = () => {
@@ -212,7 +231,7 @@ const App: React.FC = () => {
       }
     } catch (e) {
       console.error("Quiz Gen Error:", e);
-      alert("Failed to load quiz. Please try again or use Settings to Skip.");
+      alert("Failed to load quiz.");
     } finally {
       setIsLoadingGame(false);
     }
@@ -326,7 +345,6 @@ const App: React.FC = () => {
             progress={progress}
             onClose={() => setShowSettings(false)}
             onUpdatePreferences={handleUpdatePreferences}
-            onSkipCurrentLesson={undefined}
             onUnlockAll={handleUnlockAll}
           />
         )}
@@ -449,6 +467,7 @@ const App: React.FC = () => {
             onClose={() => setShowSettings(false)}
             onUpdatePreferences={handleUpdatePreferences}
             onSkipCurrentLesson={handleSkipCurrentLesson}
+            onRestartLesson={handleRestartLesson}
             onUnlockAll={handleUnlockAll}
         />
       )}

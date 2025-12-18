@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { UserProgress, UserPreferences } from '../types';
 
@@ -6,6 +7,7 @@ interface SettingsModalProps {
   onClose: () => void;
   onUpdatePreferences: (prefs: UserPreferences) => void;
   onSkipCurrentLesson?: () => void;
+  onRestartLesson?: () => void;
   onUnlockAll?: () => void;
 }
 
@@ -16,6 +18,7 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
   onClose, 
   onUpdatePreferences,
   onSkipCurrentLesson,
+  onRestartLesson,
   onUnlockAll
 }) => {
   const { preferences } = progress;
@@ -90,6 +93,13 @@ const SettingsModal: React.FC<SettingsModalProps> = ({
                🛠️ Troubleshooting
             </div>
             <div className="space-y-2">
+              <button 
+                onClick={onRestartLesson}
+                className="w-full bg-white border border-red-200 text-red-600 text-xs font-bold py-3 rounded-xl hover:bg-red-100 transition-colors text-left px-4 flex justify-between items-center"
+              >
+                <span>Restart This Lesson</span>
+                <span>🔄</span>
+              </button>
               <button 
                 onClick={onSkipCurrentLesson}
                 className="w-full bg-white border border-red-200 text-red-600 text-xs font-bold py-3 rounded-xl hover:bg-red-100 transition-colors text-left px-4 flex justify-between items-center"

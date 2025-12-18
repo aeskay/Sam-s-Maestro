@@ -1,22 +1,8 @@
 import { GoogleGenAI, Modality, Type, FunctionDeclaration } from "@google/genai";
 import { UserLevel, Message, Topic, SubTopic, QuizQuestion, Flashcard } from "../types";
 
-// Helper to safely get API key in both dev and production (Vite replaces this at build time)
-const getApiKey = () => {
-  try {
-    return process.env.API_KEY;
-  } catch (e) {
-    return undefined;
-  }
-};
-
-const API_KEY = getApiKey();
-
-if (!API_KEY) {
-  console.error("API_KEY is missing. Ensure process.env.API_KEY is defined.");
-}
-
-const ai = new GoogleGenAI({ apiKey: API_KEY || "" });
+// Always use process.env.API_KEY directly as per the standard integration guidelines.
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const suggestQuizTool: FunctionDeclaration = {
   name: "suggest_quiz",
@@ -54,13 +40,15 @@ const robustParseJson = <T>(text: string | undefined): T | null => {
 
 /**
  * Helper: Ensures chat history strictly alternates between 'user' and 'model' roles.
+ * Gemini chat history for chat.sendMessage() MUST end with a 'model' role
+ * because the sendMessage call itself acts as the subsequent 'user' turn.
  */
 const prepareHistory = (history: Message[]) => {
-  const result: { role: string; parts: { text: string }[] }[] = [];
+  const result: { role: 'user' | 'model'; parts: { text: string }[] }[] = [];
   let lastRole: string | null = null;
 
   for (const msg of history) {
-    // Avoid consecutive same-role messages
+    // Basic alternation logic
     if (msg.role !== lastRole) {
       result.push({
         role: msg.role,
@@ -69,6 +57,13 @@ const prepareHistory = (history: Message[]) => {
       lastRole = msg.role;
     }
   }
+
+  // CRITICAL: chat.sendMessage adds a 'user' turn. 
+  // If history ends with 'user', the API will throw a "consecutive roles" error.
+  if (result.length > 0 && result[result.length - 1].role === 'user') {
+    result.pop();
+  }
+
   return result;
 };
 
@@ -132,12 +127,11 @@ export async function sendMessageToGemini(
   subTopic?: SubTopic,
   userName?: string
 ): Promise<ChatResponse> {
-  if (!API_KEY) throw new Error("Gemini API key is not configured.");
-
   return callWithRetry(async () => {
     const model = "gemini-3-flash-preview";
     const systemInstruction = getSystemInstruction(level, topic, subTopic, userName);
-    const formattedHistory = prepareHistory(history.slice(-12));
+    // Take a larger slice but let prepareHistory ensure it is correct.
+    const formattedHistory = prepareHistory(history.slice(-20));
 
     const chat = ai.chats.create({
       model,
