@@ -98,7 +98,7 @@ const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled }) => {
             onKeyDown={handleKeyDown}
             disabled={disabled}
             placeholder="Type or speak Spanish..."
-            className="w-full bg-transparent border-none outline-none resize-none text-base max-h-24 py-2 text-gray-900 placeholder:text-gray-400"
+            className="w-full bg-transparent border-none outline-none resize-none text-base max-h-24 py-2 !text-gray-900 placeholder:text-gray-400 font-medium"
             rows={1}
             style={{ minHeight: '44px' }}
           />
@@ -113,7 +113,6 @@ const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled }) => {
               : 'bg-gray-200 text-gray-400 cursor-not-allowed'
           }`}
         >
-          {/* Replaced with a standard right-pointing send icon */}
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6 ml-0.5">
             <path d="M3.478 2.405a.75.75 0 00-.926.94l2.432 7.905H13.5a.75.75 0 010 1.5H4.984l-2.432 7.905a.75.75 0 00.926.94 60.519 60.519 0 0018.445-8.986.75.75 0 000-1.218A60.517 60.517 0 003.478 2.405z" />
           </svg>
