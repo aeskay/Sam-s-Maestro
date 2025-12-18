@@ -1,4 +1,3 @@
-// Fix: Added React to the import list to resolve 'Cannot find namespace React' error when using React.FC on line 18.
 import React, { useState, useEffect, useRef } from 'react';
 import { UserLevel, Message, AppView, Topic, SubTopic, QuizQuestion, Flashcard, UserPreferences } from './types';
 import { loadProgress, saveProgress, completeSubTopic, saveTopicHistory, clearTopicHistory } from './services/storage';
@@ -551,7 +550,7 @@ const App: React.FC = () => {
               <h3 className="text-center font-black text-gray-800 mb-4">Practice Tools</h3>
               <button 
                 onClick={handleStartFlashcards}
-                className="w-full text-left px-4 py-4 rounded-2xl hover:bg-emerald-50 text-gray-800 font-bold flex items-center gap-3 transition-colors border border-gray-100 mb-2"
+                className="w-full text-left px-4 py-4 rounded-2xl hover:bg-emerald-50 text-gray-700 font-bold flex items-center gap-3 transition-colors border border-gray-100 mb-2"
               >
                 <span className="text-xl">🎴</span>
                 Vocab Flashcards
@@ -561,7 +560,7 @@ const App: React.FC = () => {
                 disabled={messages.length < 2}
                 className={`w-full text-left px-4 py-4 rounded-2xl font-bold flex items-center gap-3 transition-colors border ${
                     messages.length < 2 
-                      ? 'bg-gray-50 border-gray-100 text-gray-400 cursor-not-allowed' 
+                      ? 'bg-gray-50 border-gray-100 text-gray-500 cursor-not-allowed' 
                       : 'bg-white hover:bg-emerald-50 border-gray-100 text-gray-800'
                 }`}
               >

@@ -1,6 +1,15 @@
 import { GoogleGenAI, Modality, Type, FunctionDeclaration, LiveServerMessage } from "@google/genai";
 import { UserLevel, Message, Topic, SubTopic, QuizQuestion, Flashcard } from "../types";
 
+// Helper to safely get an AI instance with typed environment variables
+const getAI = () => {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error('Missing API_KEY environment variable. Please set it in your hosting provider settings.');
+  }
+  return new GoogleGenAI({ apiKey });
+};
+
 const suggestQuizTool: FunctionDeclaration = {
   name: "suggest_quiz",
   description: "Call this function ONLY when the user has completed the Immersion Drill and is ready for the Assessment.",
@@ -147,8 +156,7 @@ export async function sendMessageToGemini(
   userName?: string
 ): Promise<ChatResponse> {
   return callWithRetry(async () => {
-    // Instantiate per-call for key freshness as per guidelines
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+    const ai = getAI();
     const model = "gemini-3-flash-preview";
     const systemInstruction = getSystemInstruction(level, topic, subTopic, userName);
     const formattedHistory = prepareHistory(history.slice(-20));
@@ -179,7 +187,7 @@ export async function sendMessageToGemini(
 
 export async function generateQuizForTopic(topic: Topic, subTopic: SubTopic, level: UserLevel): Promise<QuizQuestion[]> {
   return callWithRetry(async () => {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+    const ai = getAI();
     let languageGuideline = "";
     if (level === UserLevel.BEGINNER) {
       languageGuideline = `
@@ -229,7 +237,7 @@ export async function generateQuizForTopic(topic: Topic, subTopic: SubTopic, lev
 
 export async function generateFlashcardsForTopic(topic: Topic, subTopic: SubTopic, level: UserLevel): Promise<Flashcard[]> {
   return callWithRetry(async () => {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+    const ai = getAI();
     const prompt = `Generate exactly 10 Spanish vocabulary flashcards for: "${subTopic.title}" (${subTopic.description}).
     Level: ${level}.
     Include a front (Spanish), back (English), and a natural example sentence in Spanish.`;
@@ -270,7 +278,7 @@ export async function generateSpeechFromText(text: string, voiceName: string = '
   if (!cleanText || cleanText.length < 2) return null;
 
   return callWithRetry(async () => {
-    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+    const ai = getAI();
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
       contents: [{
@@ -308,7 +316,7 @@ export const connectLiveMaestro = (
     onError: (err: any) => void
   }
 ) => {
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+  const ai = getAI();
   const systemInstruction = getSystemInstruction(level, topic, subTopic, userName) + 
     "\n\nLIVE MODE: You are in a voice call. Speak naturally. Use short sentences. Provide instant audio feedback.";
 
