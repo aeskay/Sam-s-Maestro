@@ -30,6 +30,11 @@ const LoadingOverlay: React.FC<{ message: string }> = ({ message }) => (
   </div>
 );
 
+interface LiveChatMessage {
+  text: string;
+  role: 'user' | 'model';
+}
+
 const App: React.FC = () => {
   const [view, setView] = useState<AppView>(AppView.LEVEL_SELECT);
   const [progress, setProgress] = useState(loadProgress());
@@ -46,7 +51,7 @@ const App: React.FC = () => {
   const [loadingAudioId, setLoadingAudioId] = useState<string | null>(null);
 
   const [isLiveMode, setIsLiveMode] = useState(false);
-  const [liveTranscription, setLiveTranscription] = useState("");
+  const [liveMessages, setLiveMessages] = useState<LiveChatMessage[]>([]);
   const [liveSession, setLiveSession] = useState<any>(null);
   const nextStartTimeRef = useRef(0);
 
@@ -60,9 +65,7 @@ const App: React.FC = () => {
   const activeSourceRef = useRef<AudioBufferSourceNode | null>(null);
 
   useEffect(() => {
-    if (progress.level) {
-      setView(AppView.DASHBOARD);
-    }
+    if (progress.level) setView(AppView.DASHBOARD);
   }, []);
 
   const initAudioContext = () => {
@@ -159,7 +162,7 @@ const App: React.FC = () => {
       initAudioContext();
       if (!currentTopic || !currentSubTopic || !progress.level) return;
       setIsLiveMode(true);
-      setLiveTranscription("");
+      setLiveMessages([]);
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const sessionPromise = connectLiveMaestro(
@@ -176,7 +179,16 @@ const App: React.FC = () => {
               source.start(startAt);
               nextStartTimeRef.current = startAt + buffer.duration;
             },
-            onTranscription: (text) => setLiveTranscription(prev => prev + " " + text),
+            onTranscription: (text, isModel) => {
+              setLiveMessages(prev => {
+                const role = isModel ? 'model' : 'user';
+                if (prev.length > 0 && prev[prev.length - 1].role === role) {
+                  const last = prev[prev.length - 1];
+                  return [...prev.slice(0, -1), { ...last, text: last.text + text }];
+                }
+                return [...prev, { text, role }];
+              });
+            },
             onTurnComplete: () => console.log("Turn Complete"),
             onError: (err) => { console.error(err); setIsLiveMode(false); }
           }
@@ -240,7 +252,7 @@ const App: React.FC = () => {
         throw new Error("No questions generated");
       }
     } catch (e) { 
-      alert("Lo siento, I couldn't generate the quiz. Please try again in a moment."); 
+      alert("Lo siento, I couldn't generate the quiz. Please try again."); 
     } finally { 
       setIsLoadingGame(false); 
     }
@@ -292,7 +304,9 @@ const App: React.FC = () => {
     } catch (e) { setLoadingAudioId(null); }
   };
 
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isTyping, liveTranscription]);
+  useEffect(() => { 
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); 
+  }, [messages, isTyping, liveMessages]);
 
   if (view === AppView.LEVEL_SELECT) return <LevelSelector onSelect={handleLevelSelect} />;
   
@@ -338,23 +352,56 @@ const App: React.FC = () => {
       </header>
 
       <div className="flex-1 overflow-y-auto p-4 pb-24 max-w-2xl mx-auto w-full no-scrollbar">
-        {!isLiveMode ? messages.map((msg) => <MessageBubble key={msg.id} message={msg} onPlayAudio={handlePlayAudio} isLoadingAudio={loadingAudioId === msg.id} />) : (
-          <div className="flex flex-col items-center justify-center min-h-[50vh] text-center p-8">
-            <div className="w-32 h-32 bg-emerald-100 rounded-full flex items-center justify-center mb-6 animate-pulse border-4 border-emerald-200 text-5xl">🎙️</div>
-            <h2 className="text-2xl font-black text-gray-800 uppercase">Listening...</h2>
-            <div className="w-full bg-white rounded-3xl p-6 shadow-xl mt-6 italic text-gray-700 min-h-[100px] flex items-center justify-center">
-              {liveTranscription || "Waiting for your voice..."}
+        {!isLiveMode ? (
+          messages.map((msg) => (
+            <MessageBubble key={msg.id} message={msg} onPlayAudio={handlePlayAudio} isLoadingAudio={loadingAudioId === msg.id} />
+          ))
+        ) : (
+          <div className="space-y-4">
+            <div className="flex justify-center mb-6">
+              <div className="bg-red-50 px-4 py-2 rounded-full flex items-center gap-2 border border-red-100 shadow-sm animate-pulse">
+                <span className="w-2 h-2 bg-red-500 rounded-full"></span>
+                <span className="text-[10px] font-black text-red-600 uppercase tracking-widest">Live Voice Chat Active</span>
+              </div>
             </div>
-            <p className="mt-4 text-xs text-gray-400">Maestro will translate Spanish to English automatically.</p>
-            <button onClick={toggleLiveMode} className="mt-8 bg-red-500 text-white font-bold px-8 py-3 rounded-full shadow-lg">STOP VOICE</button>
+            
+            {liveMessages.map((msg, idx) => (
+              <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'} animate-slide-up`}>
+                <div className={`max-w-[85%] px-4 py-3 rounded-2xl shadow-sm text-sm ${
+                  msg.role === 'user' 
+                    ? 'bg-emerald-500 text-white rounded-tr-none' 
+                    : 'bg-white text-gray-800 border rounded-tl-none'
+                }`}>
+                  {msg.text}
+                </div>
+              </div>
+            ))}
+            
+            {liveMessages.length === 0 && (
+              <div className="flex flex-col items-center justify-center min-h-[40vh] text-center p-8">
+                <div className="w-24 h-24 bg-emerald-100 rounded-full flex items-center justify-center mb-6 animate-pulse border-4 border-emerald-200 text-4xl">🎙️</div>
+                <h2 className="text-xl font-black text-gray-800 uppercase">Listening...</h2>
+                <p className="mt-2 text-xs text-gray-400">Speak now, Maestro is waiting.</p>
+              </div>
+            )}
+            
+            <div className="flex justify-center mt-8">
+               <button onClick={toggleLiveMode} className="bg-red-500 text-white font-bold px-8 py-3 rounded-full shadow-lg active:scale-95 transition-transform">STOP VOICE</button>
+            </div>
           </div>
         )}
-        {isTyping && <div className="text-xs text-gray-400 ml-4 animate-pulse">Maestro is typing...</div>}
-        {quizSuggestion && !isTyping && <div className="bg-orange-100 p-4 rounded-2xl mx-4 mt-4 text-center border border-orange-200 animate-slide-up"><p className="text-xs text-orange-800 mb-2 font-bold">{quizSuggestion}</p><button onClick={handleStartQuiz} className="bg-orange-500 text-white text-xs px-4 py-2 rounded-full font-bold shadow-sm active:scale-95 transition-transform">Start Quiz</button></div>}
+        {isTyping && <div className="text-xs text-gray-400 ml-4 animate-pulse">Maestro is thinking...</div>}
+        {quizSuggestion && !isTyping && (
+          <div className="bg-orange-100 p-4 rounded-2xl mx-4 mt-4 text-center border border-orange-200 animate-slide-up">
+            <p className="text-xs text-orange-800 mb-2 font-bold">{quizSuggestion}</p>
+            <button onClick={handleStartQuiz} className="bg-orange-500 text-white text-xs px-4 py-2 rounded-full font-bold shadow-sm active:scale-95 transition-transform">Start Quiz</button>
+          </div>
+        )}
         <div ref={messagesEndRef} />
       </div>
 
       {!isLiveMode && <InputArea onSend={handleSendMessage} disabled={isTyping} />}
+      
       {showGameMenu && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
            <div className="bg-white rounded-3xl p-4 w-full max-w-xs shadow-2xl animate-slide-up">
