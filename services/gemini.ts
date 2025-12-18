@@ -1,7 +1,12 @@
 import { GoogleGenAI, Modality, Type, FunctionDeclaration } from "@google/genai";
 import { UserLevel, Message, Topic, SubTopic, QuizQuestion, Flashcard } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+const API_KEY = process.env.API_KEY;
+if (!API_KEY) {
+  throw new Error("API_KEY environment variable is not set. Please configure it in your environment settings.");
+}
+
+const ai = new GoogleGenAI({ apiKey: API_KEY });
 
 const suggestQuizTool: FunctionDeclaration = {
   name: "suggest_quiz",
@@ -20,7 +25,8 @@ const suggestQuizTool: FunctionDeclaration = {
 /**
  * Helper: Extracts JSON from a string, handling markdown blocks if present.
  */
-const robustParseJson = <T>(text: string): T | null => {
+const robustParseJson = <T>(text: string | undefined): T | null => {
+  if (!text) return null;
   try {
     return JSON.parse(text);
   } catch (e) {
@@ -172,7 +178,7 @@ export async function generateQuizForTopic(topic: Topic, subTopic: SubTopic, lev
     });
 
     const parsed = robustParseJson<QuizQuestion[]>(response.text);
-    if (!parsed || !Array.isArray(parsed)) throw new Error("Invalid Quiz JSON");
+    if (!parsed || !Array.isArray(parsed)) throw new Error("Invalid Quiz JSON or empty response");
     return parsed;
   });
 }
@@ -204,16 +210,17 @@ export async function generateFlashcardsForTopic(topic: Topic, subTopic: SubTopi
     });
 
     const parsed = robustParseJson<Flashcard[]>(response.text);
-    if (!parsed || !Array.isArray(parsed)) throw new Error("Invalid Flashcards JSON");
+    if (!parsed || !Array.isArray(parsed)) throw new Error("Invalid Flashcards JSON or empty response");
     return parsed;
   });
 }
 
 export async function generateSpeechFromText(text: string, voiceName: string = 'Kore'): Promise<string | null> {
-  // Strip all markdown and UI tags to leave only pure text for the speech model.
+  // Deep clean text for TTS to avoid model rejection
   const cleanText = text
-    .replace(/\[.*?\]/g, '') // Remove module tags like [1.1 Greetings]
+    .replace(/\[.*?\]/g, '') // Remove [1.1 Greetings]
     .replace(/[*_#`~]/g, '') // Remove markdown formatting
+    .replace(/\(.*?\)/g, '') // Remove parentheticals
     .trim();
   
   if (!cleanText || cleanText.length < 2) return null;
@@ -222,7 +229,7 @@ export async function generateSpeechFromText(text: string, voiceName: string = '
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
       contents: [{
-        parts: [{ text: `Say clearly: ${cleanText}` }]
+        parts: [{ text: `Say: ${cleanText}` }] // Concise instruction
       }],
       config: {
         responseModalities: [Modality.AUDIO],
@@ -234,7 +241,7 @@ export async function generateSpeechFromText(text: string, voiceName: string = '
 
     const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
     if (!audioData) {
-      throw new Error("Model returned non-audio response content.");
+      throw new Error("TTS Model returned non-audio response content.");
     }
     return audioData;
   }, 2, 800);
