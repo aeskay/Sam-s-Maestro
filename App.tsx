@@ -14,6 +14,22 @@ import Flashcards from './components/Flashcards';
 import ProfileModal from './components/ProfileModal';
 import SettingsModal from './components/SettingsModal';
 
+const LoadingOverlay: React.FC<{ message: string }> = ({ message }) => (
+  <div className="fixed inset-0 z-[100] flex flex-col items-center justify-center bg-emerald-600 text-white animate-fade-in">
+    <div className="relative mb-8">
+      <div className="w-24 h-24 border-4 border-emerald-400 border-t-white rounded-full animate-spin"></div>
+      <div className="absolute inset-0 flex items-center justify-center text-4xl">🦉</div>
+    </div>
+    <h2 className="text-2xl font-black uppercase tracking-widest mb-2">Preparing Lesson</h2>
+    <p className="text-emerald-100 italic animate-pulse px-8 text-center">{message}</p>
+    <div className="mt-12 flex gap-2">
+      <div className="w-2 h-2 bg-white rounded-full animate-bounce [animation-delay:-0.3s]"></div>
+      <div className="w-2 h-2 bg-white rounded-full animate-bounce [animation-delay:-0.15s]"></div>
+      <div className="w-2 h-2 bg-white rounded-full animate-bounce"></div>
+    </div>
+  </div>
+);
+
 const App: React.FC = () => {
   const [view, setView] = useState<AppView>(AppView.LEVEL_SELECT);
   const [progress, setProgress] = useState(loadProgress());
@@ -37,6 +53,7 @@ const App: React.FC = () => {
   const [quizQuestions, setQuizQuestions] = useState<QuizQuestion[]>([]);
   const [flashcards, setFlashcards] = useState<Flashcard[]>([]);
   const [isLoadingGame, setIsLoadingGame] = useState(false);
+  const [loadingGameText, setLoadingGameText] = useState("");
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const audioContextRef = useRef<AudioContext | null>(null);
@@ -211,29 +228,49 @@ const App: React.FC = () => {
   const handleStartQuiz = async () => {
     if (!currentTopic || !currentSubTopic || !progress.level) return;
     setIsLoadingGame(true);
+    setLoadingGameText("Maestro is crafting a personalized quiz for you...");
     setShowGameMenu(false);
     setQuizSuggestion(null);
     try {
       const questions = await generateQuizForTopic(currentTopic, currentSubTopic, progress.level);
-      if (questions) { setQuizQuestions(questions); setView(AppView.QUIZ); }
-    } catch (e) { alert("Failed to load quiz."); } finally { setIsLoadingGame(false); }
+      if (questions && questions.length > 0) { 
+        setQuizQuestions(questions); 
+        setView(AppView.QUIZ); 
+      } else {
+        throw new Error("No questions generated");
+      }
+    } catch (e) { 
+      alert("Lo siento, I couldn't generate the quiz. Please try again in a moment."); 
+    } finally { 
+      setIsLoadingGame(false); 
+    }
   };
 
   const handleStartFlashcards = async () => {
     if (!currentTopic || !currentSubTopic || !progress.level) return;
     setIsLoadingGame(true);
+    setLoadingGameText("Maestro is generating flashcards based on this lesson...");
     setShowGameMenu(false);
     try {
       const cards = await generateFlashcardsForTopic(currentTopic, currentSubTopic, progress.level);
-      if (cards) { setFlashcards(cards); setView(AppView.FLASHCARDS); }
-    } catch (e) { alert("Failed to load flashcards."); } finally { setIsLoadingGame(false); }
+      if (cards && cards.length > 0) { 
+        setFlashcards(cards); 
+        setView(AppView.FLASHCARDS); 
+      } else {
+        throw new Error("No cards generated");
+      }
+    } catch (e) { 
+      alert("Lo siento, I couldn't generate flashcards. Please try again."); 
+    } finally { 
+      setIsLoadingGame(false); 
+    }
   };
 
   const handleQuizComplete = (score: number) => {
     if (score >= 7 && currentTopic && currentSubTopic) {
       setProgress(completeSubTopic(currentTopic.id, currentSubTopic.id, progress));
-      alert(`Well done! Score: ${score}/10`);
-    } else { alert(`Score: ${score}/10. Keep practicing!`); }
+      alert(`¡Excelente! Score: ${score}/10. You've unlocked the next part of your journey.`);
+    } else { alert(`Score: ${score}/10. Keep practicing! You need 7/10 to advance.`); }
     setView(AppView.DASHBOARD);
   };
 
@@ -258,8 +295,10 @@ const App: React.FC = () => {
   useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, isTyping, liveTranscription]);
 
   if (view === AppView.LEVEL_SELECT) return <LevelSelector onSelect={handleLevelSelect} />;
+  
   if (view === AppView.DASHBOARD) return (
     <>
+      {isLoadingGame && <LoadingOverlay message={loadingGameText} />}
       {showProfile && <ProfileModal progress={progress} onClose={() => setShowProfile(false)} onUpdateName={handleUpdateName} onUpdateLevel={handleUpdateLevel} />}
       {showSettings && <SettingsModal progress={progress} onClose={() => setShowSettings(false)} onUpdatePreferences={handleUpdatePreferences} onUnlockAll={handleUnlockAll} />}
       <Dashboard progress={progress} onSelectTopic={handleTopicSelect} onReset={() => { localStorage.clear(); window.location.reload(); }} onOpenProfile={() => setShowProfile(true)} onOpenSettings={() => setShowSettings(true)} />
@@ -271,6 +310,7 @@ const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen bg-gray-50 overflow-hidden">
+      {isLoadingGame && <LoadingOverlay message={loadingGameText} />}
       {showSettings && (
         <SettingsModal 
           progress={progress} 
@@ -297,7 +337,7 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      <div className="flex-1 overflow-y-auto p-4 pb-24 max-w-2xl mx-auto w-full">
+      <div className="flex-1 overflow-y-auto p-4 pb-24 max-w-2xl mx-auto w-full no-scrollbar">
         {!isLiveMode ? messages.map((msg) => <MessageBubble key={msg.id} message={msg} onPlayAudio={handlePlayAudio} isLoadingAudio={loadingAudioId === msg.id} />) : (
           <div className="flex flex-col items-center justify-center min-h-[50vh] text-center p-8">
             <div className="w-32 h-32 bg-emerald-100 rounded-full flex items-center justify-center mb-6 animate-pulse border-4 border-emerald-200 text-5xl">🎙️</div>
@@ -305,26 +345,27 @@ const App: React.FC = () => {
             <div className="w-full bg-white rounded-3xl p-6 shadow-xl mt-6 italic text-gray-700 min-h-[100px] flex items-center justify-center">
               {liveTranscription || "Waiting for your voice..."}
             </div>
+            <p className="mt-4 text-xs text-gray-400">Maestro will translate Spanish to English automatically.</p>
             <button onClick={toggleLiveMode} className="mt-8 bg-red-500 text-white font-bold px-8 py-3 rounded-full shadow-lg">STOP VOICE</button>
           </div>
         )}
         {isTyping && <div className="text-xs text-gray-400 ml-4 animate-pulse">Maestro is typing...</div>}
-        {quizSuggestion && !isTyping && <div className="bg-orange-100 p-4 rounded-2xl mx-4 mt-4 text-center"><p className="text-xs text-orange-800 mb-2 font-bold">{quizSuggestion}</p><button onClick={handleStartQuiz} className="bg-orange-500 text-white text-xs px-4 py-2 rounded-full font-bold">Start Quiz</button></div>}
+        {quizSuggestion && !isTyping && <div className="bg-orange-100 p-4 rounded-2xl mx-4 mt-4 text-center border border-orange-200 animate-slide-up"><p className="text-xs text-orange-800 mb-2 font-bold">{quizSuggestion}</p><button onClick={handleStartQuiz} className="bg-orange-500 text-white text-xs px-4 py-2 rounded-full font-bold shadow-sm active:scale-95 transition-transform">Start Quiz</button></div>}
         <div ref={messagesEndRef} />
       </div>
 
       {!isLiveMode && <InputArea onSend={handleSendMessage} disabled={isTyping} />}
       {showGameMenu && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
-           <div className="bg-white rounded-3xl p-4 w-full max-w-xs shadow-2xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm animate-fade-in">
+           <div className="bg-white rounded-3xl p-4 w-full max-w-xs shadow-2xl animate-slide-up">
               <h3 className="text-center font-black text-gray-800 mb-4 uppercase text-sm tracking-widest">Practice Tools</h3>
-              <button onClick={handleStartFlashcards} className="w-full text-left px-4 py-4 rounded-2xl bg-white hover:bg-emerald-50 text-gray-800 font-bold flex items-center gap-3 border mb-2">
+              <button onClick={handleStartFlashcards} className="w-full text-left px-4 py-4 rounded-2xl bg-white hover:bg-emerald-50 text-gray-800 font-bold flex items-center gap-3 border mb-2 transition-colors">
                 <span className="text-xl">🎴</span> Flashcards
               </button>
-              <button onClick={handleStartQuiz} className={`w-full text-left px-4 py-4 rounded-2xl font-bold flex items-center gap-3 border bg-white hover:bg-emerald-50 text-gray-800`}>
+              <button onClick={handleStartQuiz} className={`w-full text-left px-4 py-4 rounded-2xl font-bold flex items-center gap-3 border bg-white hover:bg-emerald-50 text-gray-800 transition-colors`}>
                 <span className="text-xl">📝</span> Knowledge Quiz
               </button>
-              <button onClick={() => setShowGameMenu(false)} className="w-full text-center py-3 text-gray-400 text-sm font-bold mt-2">Close</button>
+              <button onClick={() => setShowGameMenu(false)} className="w-full text-center py-3 text-gray-400 text-sm font-bold mt-2 hover:text-gray-600 transition-colors">Close</button>
            </div>
         </div>
       )}

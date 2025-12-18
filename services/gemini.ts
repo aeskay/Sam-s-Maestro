@@ -107,11 +107,11 @@ const getSystemInstruction = (level: UserLevel, topic?: Topic, subTopic?: SubTop
   Your goal is to help ${userName || 'the user'} master Spanish from ${level} level.
   
   BILINGUAL SCAFFOLDING RULES (STRICT ADHERENCE):
-  - IF Level is Beginner: Speak English 80% of the time. Explain Spanish phrases in English. Always translate what you just said in Spanish to English immediately. Your goal is to make the user feel comfortable and understood.
-  - IF Level is Intermediate: Speak Spanish 70% of the time. Use English for complex explanations, grammar rules, or when the user seems confused. Provide English translations for new vocabulary.
-  - IF Level is Expert: Speak 100% Spanish. Use high-level vocabulary and idioms.
+  - IF Level is Beginner: Speak Spanish ONLY for the specific vocabulary being taught. Explain everything else in English. Every time you say something in Spanish, IMMEDIATELY follow it with the English translation in parentheses. Example: "Hola (Hello), how are you today?"
+  - IF Level is Intermediate: Speak 50% Spanish, 50% English. Provide translations for any complex Spanish sentences. Use English to explain grammar.
+  - IF Level is Expert: Speak 100% Spanish.
   
-  CORE RULE: ONE CONCEPT AT A TIME. Keep responses concise (max 3 sentences).
+  CORE RULE: ONE CONCEPT AT A TIME. Keep responses short. 
   MANDATORY: Start every message with [${subTopic?.title || 'Maestro'}].`;
 
   if (topic && subTopic) {
@@ -198,7 +198,8 @@ export async function generateQuizForTopic(topic: Topic, subTopic: SubTopic, lev
 export async function generateFlashcardsForTopic(topic: Topic, subTopic: SubTopic, level: UserLevel): Promise<Flashcard[]> {
   return callWithRetry(async () => {
     const ai = getAI();
-    const prompt = `Generate 10 Spanish flashcards for: "${subTopic.title}" at ${level} level.`;
+    const prompt = `Generate 10 Spanish flashcards for: "${subTopic.title}" at ${level} level. 
+    Front: Spanish word/phrase. Back: English translation. Example: A simple sentence using the word in Spanish.`;
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
@@ -258,7 +259,9 @@ export const connectLiveMaestro = (
   }
 ) => {
   const ai = getAI();
-  const systemInstruction = getSystemInstruction(level, topic, subTopic, userName) + " We are in a LIVE voice session. Be extra helpful and use English for explanations if the user is a Beginner or Intermediate learner.";
+  const systemInstruction = getSystemInstruction(level, topic, subTopic, userName) + 
+    "\nLIVE VOICE MODE: You are currently talking to the user. " +
+    "IF USER IS BEGINNER OR INTERMEDIATE: ALWAYS say a sentence in Spanish, then IMMEDIATELY repeat it in English for comprehension. Example: '¿Cómo estás? How are you?'";
 
   return ai.live.connect({
     model: 'gemini-2.5-flash-native-audio-preview-09-2025',
