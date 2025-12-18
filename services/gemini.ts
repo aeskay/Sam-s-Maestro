@@ -17,53 +17,90 @@ const suggestQuizTool: FunctionDeclaration = {
   }
 };
 
-// Helper: Extract JSON from Markdown code blocks or return trimmed text
-const cleanJson = (text: string): string => {
-  const match = text.match(/```json\s*([\s\S]*?)\s*```/) || text.match(/```\s*([\s\S]*?)\s*```/);
-  if (match) {
-    return match[1].trim();
+/**
+ * Helper: Extracts JSON from a string, handling markdown blocks if present.
+ * If JSON parsing fails, returns null.
+ */
+const robustParseJson = <T>(text: string): T | null => {
+  try {
+    // If it's already a clean JSON string
+    return JSON.parse(text);
+  } catch (e) {
+    try {
+      // Try to find a JSON block
+      const match = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
+      if (match && match[1]) {
+        return JSON.parse(match[1].trim());
+      }
+    } catch (e2) {
+      console.error("JSON Parsing Error:", e2, "Text was:", text);
+    }
+    return null;
   }
-  return text.trim();
 };
 
-// Helper: Retry logic for API calls
-async function callWithRetry<T>(fn: () => Promise<T>, retries = 3, delay = 1000): Promise<T> {
-  try {
-    return await fn();
-  } catch (error) {
-    if (retries > 0) {
-      console.warn(`Retrying Gemini call after error: ${error instanceof Error ? error.message : String(error)}`);
-      await new Promise(res => setTimeout(res, delay));
-      return callWithRetry(fn, retries - 1, delay * 1.5);
+/**
+ * Helper: Ensures chat history strictly alternates between 'user' and 'model' roles.
+ * This is required by the Gemini API for stable multi-turn conversations.
+ */
+const prepareHistory = (history: Message[]) => {
+  const result: { role: string; parts: { text: string }[] }[] = [];
+  let lastRole: string | null = null;
+
+  for (const msg of history) {
+    if (msg.role !== lastRole) {
+      result.push({
+        role: msg.role,
+        parts: [{ text: msg.text }]
+      });
+      lastRole = msg.role;
     }
-    throw error;
   }
+  return result;
+};
+
+// Helper: Retry logic for API calls with exponential backoff
+async function callWithRetry<T>(fn: () => Promise<T>, retries = 3, initialDelay = 1500): Promise<T> {
+  let delay = initialDelay;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await fn();
+    } catch (error: any) {
+      const isLastAttempt = i === retries;
+      const status = error?.status || error?.response?.status;
+      
+      // If we are rate limited (429) or hit a transient 5xx, retry.
+      if (!isLastAttempt && (status === 429 || status >= 500 || error.message?.includes('fetch'))) {
+        console.warn(`Retry attempt ${i + 1} after error: ${error.message}`);
+        await new Promise(res => setTimeout(res, delay));
+        delay *= 2; // Exponential backoff
+        continue;
+      }
+      throw error;
+    }
+  }
+  throw new Error("Maximum retries exceeded");
 }
 
 const getSystemInstruction = (level: UserLevel, topic?: Topic, subTopic?: SubTopic, userName?: string) => {
-  let base = `You are "Sam's Maestro", a friendly, encouraging, and world-class Spanish language tutor. 
-  Your goal is to help the user${userName ? ` named ${userName}` : ''} master Spanish from absolute zero to native fluency.
+  let base = `You are "Sam's Maestro", a world-class Spanish language tutor. 
+  Your goal is to help ${userName || 'the user'} master Spanish from ${level} level.
   
-  CORE RULE: EXHAUSTIVE DEPTH. NO SKIMMING.
-  You may only teach ONE concept at a time. Do not dump a list of vocabulary.
-  Keep individual responses concise (2-3 sentences), but cover the topic deeply over multiple turns.`;
+  CORE RULE: ONE CONCEPT AT A TIME. 
+  Keep responses concise (max 3 sentences) but provide deep explanation over multiple turns.
+  Always be encouraging. Use a mix of Spanish and English appropriate for their level.`;
 
   if (topic && subTopic) {
-    base += `\n\nCURRENT LESSON CONTEXT:
-    [Current Level: ${level} | Module: ${subTopic.title} - ${topic.title}]
-    Description: ${subTopic.description}
+    base += `\n\nCURRENT LESSON:
+    [Topic: ${topic.title} | Sub-Topic: ${subTopic.title}]
+    Goal: ${subTopic.description}
     
-    YOU MUST FOLLOW THIS 5-STEP LESSON STRUCTURE FOR THIS SUB-TOPIC:
-    1. Vocabulary Injection: Introduce relevant words/phrases gradually.
-    2. Grammar Hook: Explain the specific grammar rule in this context.
-    3. Cultural Nuance: How do natives actually say this? (Slang vs Formal).
-    4. Immersion Drill: Engage the user in a roleplay dialogue.
-    5. Assessment: When they succeed in the drill, call 'suggest_quiz'.
-
-    MANDATORY OUTPUT FORMAT:
-    Start every response with exactly this tag: [${subTopic.title}]
-    Example: "[1.1 The Alphabet] Great work! Now let's look at vowels..."
-    `;
+    STRUCTURE:
+    1. Vocab -> 2. Grammar -> 3. Culture -> 4. Drill (Roleplay) -> 5. Assessment.
+    
+    When you feel they've mastered the drill for THIS specific sub-topic, call the 'suggest_quiz' tool.
+    
+    MANDATORY: Start every message with [${subTopic.title}].`;
   }
 
   return base;
@@ -84,145 +121,126 @@ export async function sendMessageToGemini(
   userName?: string
 ): Promise<ChatResponse> {
   return callWithRetry(async () => {
-    try {
-      // Use 'gemini-3-flash-preview' for basic text/chat tasks
-      const modelName = "gemini-3-flash-preview";
-      const systemInstruction = getSystemInstruction(level, topic, subTopic, userName);
+    // Basic text tasks use gemini-3-flash-preview
+    const model = "gemini-3-flash-preview";
+    const systemInstruction = getSystemInstruction(level, topic, subTopic, userName);
+    const formattedHistory = prepareHistory(history.slice(-12));
 
-      // Filter history to ensure the current newMessage isn't duplicated
-      const recentHistory = history
-        .filter(msg => msg.text !== newMessage)
-        .slice(-10)
-        .map(msg => ({
-          role: msg.role,
-          parts: [{ text: msg.text }]
-        }));
+    const chat = ai.chats.create({
+      model,
+      history: formattedHistory,
+      config: {
+        systemInstruction,
+        temperature: 0.8,
+        tools: [{ functionDeclarations: [suggestQuizTool] }]
+      }
+    });
 
-      const chat = ai.chats.create({
-        model: modelName,
-        history: recentHistory,
-        config: {
-          systemInstruction,
-          temperature: 0.7, 
-          tools: [{ functionDeclarations: [suggestQuizTool] }]
-        }
-      });
+    const result = await chat.sendMessage({ message: newMessage });
+    
+    const functionCall = result.functionCalls?.find(fc => fc.name === 'suggest_quiz');
+    const suggestQuiz = !!functionCall;
+    const suggestionReason = functionCall?.args?.reason as string | undefined;
 
-      const result = await chat.sendMessage({ message: newMessage });
-      
-      const functionCall = result.functionCalls?.find(fc => fc.name === 'suggest_quiz');
-      const suggestQuiz = !!functionCall;
-      const suggestionReason = functionCall?.args?.reason as string | undefined;
-
-      return {
-        text: result.text || "",
-        suggestQuiz,
-        suggestionReason
-      };
-
-    } catch (error) {
-      console.error("Gemini Chat Error:", error);
-      throw error;
-    }
+    return {
+      text: result.text || "Lo siento, I couldn't process that. Try again?",
+      suggestQuiz,
+      suggestionReason
+    };
   });
 }
 
 export async function generateQuizForTopic(topic: Topic, subTopic: SubTopic, level: UserLevel): Promise<QuizQuestion[]> {
   return callWithRetry(async () => {
-    try {
-      const prompt = `Generate 10 multiple-choice questions in Spanish to test the user's knowledge of the specific sub-module: "${subTopic.title}" (Context: ${topic.title}).
-      Ensure questions cover vocabulary, grammar, and cultural nuances taught in this module.
-      User Level: ${level}.`;
+    const prompt = `Generate exactly 10 multiple-choice questions in Spanish testing: "${subTopic.title}" within the context of "${topic.title}".
+    Target Level: ${level}.
+    Coverage: Vocabulary, Grammar, and Usage.`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                question: { type: Type.STRING, description: "Question in Spanish" },
-                options: { type: Type.ARRAY, items: { type: Type.STRING } },
-                correctAnswerIndex: { type: Type.INTEGER },
-                explanation: { type: Type.STRING, description: "Explanation in English" }
-              },
-              required: ["question", "options", "correctAnswerIndex", "explanation"]
-            }
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              question: { type: Type.STRING },
+              options: { type: Type.ARRAY, items: { type: Type.STRING } },
+              correctAnswerIndex: { type: Type.INTEGER },
+              explanation: { type: Type.STRING }
+            },
+            required: ["question", "options", "correctAnswerIndex", "explanation"]
           }
         }
-      });
+      }
+    });
 
-      const text = response.text || "";
-      const cleanedText = cleanJson(text);
-      return JSON.parse(cleanedText) as QuizQuestion[];
-
-    } catch (e) {
-      console.error("Quiz generation failed:", e);
-      throw e;
-    }
+    const parsed = robustParseJson<QuizQuestion[]>(response.text);
+    if (!parsed || !Array.isArray(parsed)) throw new Error("Invalid Quiz JSON");
+    return parsed;
   });
 }
 
 export async function generateFlashcardsForTopic(topic: Topic, subTopic: SubTopic, level: UserLevel): Promise<Flashcard[]> {
   return callWithRetry(async () => {
-    try {
-      const prompt = `Generate 10 flashcards for Spanish vocabulary strictly related to Module: "${subTopic.title}" (${subTopic.description}).
-      Include a mix of core vocabulary and slang/cultural terms if relevant.
-      User Level: ${level}.`;
+    const prompt = `Generate exactly 10 Spanish vocabulary flashcards for: "${subTopic.title}" (${subTopic.description}).
+    Level: ${level}.
+    Include a front (Spanish), back (English), and a natural example sentence in Spanish.`;
 
-      const response = await ai.models.generateContent({
-        model: "gemini-3-flash-preview",
-        contents: prompt,
-        config: {
-          responseMimeType: "application/json",
-          responseSchema: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                front: { type: Type.STRING },
-                back: { type: Type.STRING },
-                example: { type: Type.STRING }
-              },
-              required: ["front", "back", "example"]
-            }
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt,
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              front: { type: Type.STRING },
+              back: { type: Type.STRING },
+              example: { type: Type.STRING }
+            },
+            required: ["front", "back", "example"]
           }
         }
-      });
+      }
+    });
 
-      const text = response.text || "";
-      const cleanedText = cleanJson(text);
-      return JSON.parse(cleanedText) as Flashcard[];
-    } catch (e) {
-      console.error("Flashcard generation failed:", e);
-      throw e;
-    }
+    const parsed = robustParseJson<Flashcard[]>(response.text);
+    if (!parsed || !Array.isArray(parsed)) throw new Error("Invalid Flashcards JSON");
+    return parsed;
   });
 }
 
 export async function generateSpeechFromText(text: string, voiceName: string = 'Kore'): Promise<string | null> {
-  const cleanText = text.replace(/\[.*?\]/, '').trim();
+  // TTS models can be sensitive to non-text markers and excessively long strings.
+  const cleanText = text.replace(/\[.*?\]/g, '').replace(/[*_#]/g, '').trim();
+  
+  if (!cleanText || cleanText.length < 2) return null;
 
   return callWithRetry(async () => {
-    try {
-      const response = await ai.models.generateContent({
-        model: "gemini-2.5-flash-preview-tts",
-        contents: { parts: [{ text: cleanText }] },
-        config: {
-          responseModalities: [Modality.AUDIO],
-          speechConfig: {
-            voiceConfig: { prebuiltVoiceConfig: { voiceName } }
-          }
+    // CRITICAL: The prompt must clearly instruct the model to speak the text.
+    // The contents structure should be an array of parts within an object in the array.
+    const response = await ai.models.generateContent({
+      model: "gemini-2.5-flash-preview-tts",
+      contents: [{
+        parts: [{ text: `Speak this clearly: ${cleanText}` }]
+      }],
+      config: {
+        responseModalities: [Modality.AUDIO],
+        speechConfig: {
+          voiceConfig: { prebuiltVoiceConfig: { voiceName } }
         }
-      });
+      }
+    });
 
-      return response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data || null;
-    } catch (error) {
-      console.error("Gemini TTS Error:", error);
-      throw error;
+    const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    if (!audioData) {
+      throw new Error("No audio data in response candidates");
     }
-  }, 2, 500);
+    return audioData;
+  }, 2, 800);
 }
