@@ -78,6 +78,7 @@ const prepareHistory = (history: Message[]) => {
     }
   }
 
+  // Ensure history ends with the correct role for chat start if needed
   if (result.length > 0 && result[result.length - 1].role === 'user') {
     result.pop();
   }
@@ -270,15 +271,22 @@ export const connectLiveMaestro = (
     callbacks: {
       onopen: () => console.log("Live Opened"),
       onmessage: async (message: LiveServerMessage) => {
-        if (message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data) {
-          callbacks.onAudio(message.serverContent.modelTurn.parts[0].inlineData.data);
+        // Extract and narrow optional properties to satisfy TypeScript
+        const audioData = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
+        if (audioData) {
+          callbacks.onAudio(audioData);
         }
-        if (message.serverContent?.outputTranscription) {
-          callbacks.onTranscription(message.serverContent.outputTranscription.text, true);
+
+        const outputTranscription = message.serverContent?.outputTranscription?.text;
+        if (outputTranscription) {
+          callbacks.onTranscription(outputTranscription, true);
         }
-        if (message.serverContent?.inputTranscription) {
-          callbacks.onTranscription(message.serverContent.inputTranscription.text, false);
+
+        const inputTranscription = message.serverContent?.inputTranscription?.text;
+        if (inputTranscription) {
+          callbacks.onTranscription(inputTranscription, false);
         }
+
         if (message.serverContent?.turnComplete) {
           callbacks.onTurnComplete();
         }
