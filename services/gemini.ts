@@ -19,21 +19,18 @@ const suggestQuizTool: FunctionDeclaration = {
 
 /**
  * Helper: Extracts JSON from a string, handling markdown blocks if present.
- * If JSON parsing fails, returns null.
  */
 const robustParseJson = <T>(text: string): T | null => {
   try {
-    // If it's already a clean JSON string
     return JSON.parse(text);
   } catch (e) {
     try {
-      // Try to find a JSON block
       const match = text.match(/```(?:json)?\s*([\s\S]*?)\s*```/);
       if (match && match[1]) {
         return JSON.parse(match[1].trim());
       }
     } catch (e2) {
-      console.error("JSON Parsing Error:", e2, "Text was:", text);
+      console.error("JSON Parsing Error:", e2);
     }
     return null;
   }
@@ -41,7 +38,6 @@ const robustParseJson = <T>(text: string): T | null => {
 
 /**
  * Helper: Ensures chat history strictly alternates between 'user' and 'model' roles.
- * This is required by the Gemini API for stable multi-turn conversations.
  */
 const prepareHistory = (history: Message[]) => {
   const result: { role: string; parts: { text: string }[] }[] = [];
@@ -69,11 +65,10 @@ async function callWithRetry<T>(fn: () => Promise<T>, retries = 3, initialDelay 
       const isLastAttempt = i === retries;
       const status = error?.status || error?.response?.status;
       
-      // If we are rate limited (429) or hit a transient 5xx, retry.
       if (!isLastAttempt && (status === 429 || status >= 500 || error.message?.includes('fetch'))) {
         console.warn(`Retry attempt ${i + 1} after error: ${error.message}`);
         await new Promise(res => setTimeout(res, delay));
-        delay *= 2; // Exponential backoff
+        delay *= 2;
         continue;
       }
       throw error;
@@ -121,7 +116,6 @@ export async function sendMessageToGemini(
   userName?: string
 ): Promise<ChatResponse> {
   return callWithRetry(async () => {
-    // Basic text tasks use gemini-3-flash-preview
     const model = "gemini-3-flash-preview";
     const systemInstruction = getSystemInstruction(level, topic, subTopic, userName);
     const formattedHistory = prepareHistory(history.slice(-12));
@@ -216,18 +210,19 @@ export async function generateFlashcardsForTopic(topic: Topic, subTopic: SubTopi
 }
 
 export async function generateSpeechFromText(text: string, voiceName: string = 'Kore'): Promise<string | null> {
-  // TTS models can be sensitive to non-text markers and excessively long strings.
-  const cleanText = text.replace(/\[.*?\]/g, '').replace(/[*_#]/g, '').trim();
+  // Strip all markdown and UI tags to leave only pure text for the speech model.
+  const cleanText = text
+    .replace(/\[.*?\]/g, '') // Remove module tags like [1.1 Greetings]
+    .replace(/[*_#`~]/g, '') // Remove markdown formatting
+    .trim();
   
   if (!cleanText || cleanText.length < 2) return null;
 
   return callWithRetry(async () => {
-    // CRITICAL: The prompt must clearly instruct the model to speak the text.
-    // The contents structure should be an array of parts within an object in the array.
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
       contents: [{
-        parts: [{ text: `Speak this clearly: ${cleanText}` }]
+        parts: [{ text: `Say clearly: ${cleanText}` }]
       }],
       config: {
         responseModalities: [Modality.AUDIO],
@@ -239,7 +234,7 @@ export async function generateSpeechFromText(text: string, voiceName: string = '
 
     const audioData = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
     if (!audioData) {
-      throw new Error("No audio data in response candidates");
+      throw new Error("Model returned non-audio response content.");
     }
     return audioData;
   }, 2, 800);
