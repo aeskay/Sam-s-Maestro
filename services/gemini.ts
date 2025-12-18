@@ -1,7 +1,8 @@
-import { GoogleGenAI, Modality, Type, FunctionDeclaration } from "@google/genai";
+
+import { GoogleGenAI, Modality, Type, FunctionDeclaration, LiveServerMessage } from "@google/genai";
 import { UserLevel, Message, Topic, SubTopic, QuizQuestion, Flashcard } from "../types";
 
-// Always use process.env.API_KEY directly as per the standard integration guidelines.
+// Always use process.env.API_KEY directly as per standard integration guidelines.
 const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const suggestQuizTool: FunctionDeclaration = {
@@ -17,6 +18,31 @@ const suggestQuizTool: FunctionDeclaration = {
     }
   }
 };
+
+/**
+ * Manual Base64 decoding as per guidelines
+ */
+function decodeBase64Manual(base64: string): Uint8Array {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes;
+}
+
+/**
+ * Manual Base64 encoding as per guidelines
+ */
+function encodeBase64Manual(bytes: Uint8Array): string {
+  let binary = '';
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCharCode(bytes[i]);
+  }
+  return btoa(binary);
+}
 
 /**
  * Helper: Extracts JSON from a string, handling markdown blocks if present.
@@ -40,15 +66,12 @@ const robustParseJson = <T>(text: string | undefined): T | null => {
 
 /**
  * Helper: Ensures chat history strictly alternates between 'user' and 'model' roles.
- * Gemini chat history for chat.sendMessage() MUST end with a 'model' role
- * because the sendMessage call itself acts as the subsequent 'user' turn.
  */
 const prepareHistory = (history: Message[]) => {
   const result: { role: 'user' | 'model'; parts: { text: string }[] }[] = [];
   let lastRole: string | null = null;
 
   for (const msg of history) {
-    // Basic alternation logic
     if (msg.role !== lastRole) {
       result.push({
         role: msg.role,
@@ -58,8 +81,8 @@ const prepareHistory = (history: Message[]) => {
     }
   }
 
-  // CRITICAL: chat.sendMessage adds a 'user' turn. 
-  // If history ends with 'user', the API will throw a "consecutive roles" error.
+  // Gemini API sendMessage adds a 'user' turn automatically, 
+  // so the history passed to chats.create MUST end with a 'model' turn.
   if (result.length > 0 && result[result.length - 1].role === 'user') {
     result.pop();
   }
@@ -130,7 +153,6 @@ export async function sendMessageToGemini(
   return callWithRetry(async () => {
     const model = "gemini-3-flash-preview";
     const systemInstruction = getSystemInstruction(level, topic, subTopic, userName);
-    // Take a larger slice but let prepareHistory ensure it is correct.
     const formattedHistory = prepareHistory(history.slice(-20));
 
     const chat = ai.chats.create({
@@ -159,9 +181,25 @@ export async function sendMessageToGemini(
 
 export async function generateQuizForTopic(topic: Topic, subTopic: SubTopic, level: UserLevel): Promise<QuizQuestion[]> {
   return callWithRetry(async () => {
-    const prompt = `Generate exactly 10 multiple-choice questions in Spanish testing: "${subTopic.title}" within the context of "${topic.title}".
-    Target Level: ${level}.
-    Coverage: Vocabulary, Grammar, and Usage.`;
+    let languageGuideline = "";
+    if (level === UserLevel.BEGINNER) {
+      languageGuideline = `
+      MANDATORY BEGINNER RULES:
+      1. THE 'question' FIELD MUST BE IN ENGLISH.
+      2. THE 'options' MUST BE IN ENGLISH (except for the Spanish word being tested).
+      3. THE 'explanation' MUST BE IN ENGLISH.
+      Example Question: 'What is the Spanish word for "Apple"?'
+      Example Options: ['Manzana', 'Pera', 'Naranja', 'Uva']
+      DO NOT ASK QUESTIONS IN SPANISH FOR BEGINNERS.`;
+    } else if (level === UserLevel.INTERMEDIATE) {
+      languageGuideline = "Use a mix of English and Spanish for questions. Options should mostly be in Spanish.";
+    } else {
+      languageGuideline = "Use Spanish only for everything (Advanced/Expert).";
+    }
+
+    const prompt = `Generate exactly 10 multiple-choice questions for: "${subTopic.title}" within the context of "${topic.title}".
+    Target Proficiency: ${level}.
+    ${languageGuideline}`;
 
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
@@ -252,3 +290,61 @@ export async function generateSpeechFromText(text: string, voiceName: string = '
     return audioData;
   }, 2, 800);
 }
+
+/**
+ * LIVE API Support
+ */
+export const connectLiveMaestro = (
+  level: UserLevel,
+  topic: Topic,
+  subTopic: SubTopic,
+  userName: string,
+  voiceName: string,
+  callbacks: {
+    onAudio: (base64: string) => void,
+    onTranscription: (text: string, isModel: boolean) => void,
+    onTurnComplete: () => void,
+    onError: (err: any) => void
+  }
+) => {
+  const systemInstruction = getSystemInstruction(level, topic, subTopic, userName) + 
+    "\n\nLIVE MODE: You are in a voice call. Speak naturally. Use short sentences. Provide instant audio feedback.";
+
+  return ai.live.connect({
+    model: 'gemini-2.5-flash-native-audio-preview-09-2025',
+    config: {
+      systemInstruction,
+      responseModalities: [Modality.AUDIO],
+      speechConfig: {
+        voiceConfig: { prebuiltVoiceConfig: { voiceName } }
+      },
+      outputAudioTranscription: {},
+      inputAudioTranscription: {}
+    },
+    callbacks: {
+      onopen: () => {
+        console.log("Live Maestro Session Opened");
+      },
+      onmessage: async (message: LiveServerMessage) => {
+        if (message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data) {
+          callbacks.onAudio(message.serverContent.modelTurn.parts[0].inlineData.data);
+        }
+        if (message.serverContent?.outputTranscription) {
+          callbacks.onTranscription(message.serverContent.outputTranscription.text, true);
+        }
+        if (message.serverContent?.inputTranscription) {
+          callbacks.onTranscription(message.serverContent.inputTranscription.text, false);
+        }
+        if (message.serverContent?.turnComplete) {
+          callbacks.onTurnComplete();
+        }
+      },
+      onerror: callbacks.onError,
+      onclose: () => {
+        console.log("Live Maestro Session Closed");
+      }
+    }
+  });
+};
+
+export { decodeBase64Manual as decode, encodeBase64Manual as encode };

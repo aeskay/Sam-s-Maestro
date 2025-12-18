@@ -98,7 +98,7 @@ const InputArea: React.FC<InputAreaProps> = ({ onSend, disabled }) => {
             onKeyDown={handleKeyDown}
             disabled={disabled}
             placeholder="Type or speak Spanish..."
-            className="w-full bg-transparent border-none outline-none resize-none text-base max-h-24 py-2"
+            className="w-full bg-transparent border-none outline-none resize-none text-base max-h-24 py-2 text-gray-900 placeholder:text-gray-400"
             rows={1}
             style={{ minHeight: '44px' }}
           />
