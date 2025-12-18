@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { UserLevel, Message, AppView, Topic, SubTopic, QuizQuestion, Flashcard, UserPreferences } from './types';
 import { loadProgress, saveProgress, completeSubTopic, saveTopicHistory } from './services/storage';
 import { sendMessageToGemini, generateSpeechFromText, generateQuizForTopic, generateFlashcardsForTopic } from './services/gemini';
@@ -115,16 +115,21 @@ const App: React.FC = () => {
     if (!currentTopic || !currentSubTopic) return;
     setQuizSuggestion(null);
 
+    // Capture the history BEFORE we add the new message
+    const historyBeforeCurrentMessage = [...messages];
+    
     const newUserMsg: Message = { id: Date.now().toString(), role: 'user', text, timestamp: Date.now() };
     const messagesAfterUser = [...messages, newUserMsg];
     setMessages(messagesAfterUser);
+    
     const progressAfterUser = saveTopicHistory(progress, currentSubTopic.id, messagesAfterUser);
     setProgress(progressAfterUser);
     setIsTyping(true);
 
     try {
+      // Pass the previous history to avoid consecutive user turns in the API request
       const response = await sendMessageToGemini(
-        messagesAfterUser, 
+        historyBeforeCurrentMessage, 
         text, 
         progress.level!, 
         currentTopic, 
@@ -154,12 +159,12 @@ const App: React.FC = () => {
       }
 
     } catch (e) {
-      console.error(e);
+      console.error("Gemini Chat Error:", e);
       // Add error message to chat
        const errorMsg: Message = {
         id: 'error-' + Date.now(),
         role: 'model',
-        text: "Lo siento, I lost connection properly. Please try saying that again!",
+        text: "Lo siento, I lost connection properly. Please check your API configuration or try again!",
         timestamp: Date.now()
       };
       setMessages(prev => [...prev, errorMsg]);
@@ -206,6 +211,7 @@ const App: React.FC = () => {
         throw new Error("Empty quiz generated");
       }
     } catch (e) {
+      console.error("Quiz Gen Error:", e);
       alert("Failed to load quiz. Please try again or use Settings to Skip.");
     } finally {
       setIsLoadingGame(false);
@@ -225,6 +231,7 @@ const App: React.FC = () => {
         throw new Error("Empty flashcards generated");
       }
     } catch (e) {
+      console.error("Flashcard Gen Error:", e);
       alert("Failed to load flashcards.");
     } finally {
       setIsLoadingGame(false);
@@ -232,10 +239,7 @@ const App: React.FC = () => {
   };
 
   const handleQuizComplete = (score: number) => {
-    // If they pass the quiz (70% or 7/10)
-    // Note: If quiz gen failed and returned fallback, length might be small, so use ratio.
     const passingScore = Math.ceil(quizQuestions.length * 0.7);
-    
     if (score >= passingScore && currentTopic && currentSubTopic) {
       const updated = completeSubTopic(currentTopic.id, currentSubTopic.id, progress);
       setProgress(updated);
@@ -298,8 +302,6 @@ const App: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping, quizSuggestion]);
 
-  // --- Renders ---
-
   if (view === AppView.DASHBOARD && !progress.userName && !showProfile) {
      setTimeout(() => setShowProfile(true), 500);
   }
@@ -324,7 +326,7 @@ const App: React.FC = () => {
             progress={progress}
             onClose={() => setShowSettings(false)}
             onUpdatePreferences={handleUpdatePreferences}
-            onSkipCurrentLesson={undefined} // Can't skip from dashboard easily without context selection
+            onSkipCurrentLesson={undefined}
             onUnlockAll={handleUnlockAll}
           />
         )}
@@ -350,7 +352,6 @@ const App: React.FC = () => {
     return <Flashcards cards={flashcards} onComplete={handleFlashcardsComplete} onClose={() => setView(AppView.DASHBOARD)} />;
   }
 
-  // Chat View
   return (
     <div className="flex flex-col h-screen bg-gray-50 overflow-hidden">
       <header className="flex-none bg-white border-b border-gray-200 px-4 py-3 flex justify-between items-center shadow-sm z-10 relative">
@@ -363,7 +364,6 @@ const App: React.FC = () => {
         </div>
         
         <div className="flex items-center gap-2">
-            {/* Play Menu Button */}
             <div className="relative">
               <button 
                 onClick={() => setShowGameMenu(!showGameMenu)}
@@ -401,7 +401,6 @@ const App: React.FC = () => {
               )}
             </div>
             
-            {/* Chat View Settings Button */}
             <button 
               onClick={() => setShowSettings(true)}
               className="p-1 text-gray-400 hover:text-gray-600"
@@ -444,7 +443,6 @@ const App: React.FC = () => {
 
       <InputArea onSend={handleSendMessage} disabled={isTyping} />
 
-      {/* Chat Specific Settings Modal Overlay */}
       {showSettings && (
         <SettingsModal
             progress={progress}

@@ -1,12 +1,22 @@
 import { GoogleGenAI, Modality, Type, FunctionDeclaration } from "@google/genai";
 import { UserLevel, Message, Topic, SubTopic, QuizQuestion, Flashcard } from "../types";
 
-const API_KEY = process.env.API_KEY;
+// Helper to safely get API key in both dev and production (Vite replaces this at build time)
+const getApiKey = () => {
+  try {
+    return process.env.API_KEY;
+  } catch (e) {
+    return undefined;
+  }
+};
+
+const API_KEY = getApiKey();
+
 if (!API_KEY) {
-  throw new Error("API_KEY environment variable is not set. Please configure it in your environment settings.");
+  console.error("API_KEY is missing. Ensure process.env.API_KEY is defined.");
 }
 
-const ai = new GoogleGenAI({ apiKey: API_KEY });
+const ai = new GoogleGenAI({ apiKey: API_KEY || "" });
 
 const suggestQuizTool: FunctionDeclaration = {
   name: "suggest_quiz",
@@ -50,6 +60,7 @@ const prepareHistory = (history: Message[]) => {
   let lastRole: string | null = null;
 
   for (const msg of history) {
+    // Avoid consecutive same-role messages
     if (msg.role !== lastRole) {
       result.push({
         role: msg.role,
@@ -121,6 +132,8 @@ export async function sendMessageToGemini(
   subTopic?: SubTopic,
   userName?: string
 ): Promise<ChatResponse> {
+  if (!API_KEY) throw new Error("Gemini API key is not configured.");
+
   return callWithRetry(async () => {
     const model = "gemini-3-flash-preview";
     const systemInstruction = getSystemInstruction(level, topic, subTopic, userName);
@@ -216,11 +229,10 @@ export async function generateFlashcardsForTopic(topic: Topic, subTopic: SubTopi
 }
 
 export async function generateSpeechFromText(text: string, voiceName: string = 'Kore'): Promise<string | null> {
-  // Deep clean text for TTS to avoid model rejection
   const cleanText = text
-    .replace(/\[.*?\]/g, '') // Remove [1.1 Greetings]
-    .replace(/[*_#`~]/g, '') // Remove markdown formatting
-    .replace(/\(.*?\)/g, '') // Remove parentheticals
+    .replace(/\[.*?\]/g, '')
+    .replace(/[*_#`~]/g, '')
+    .replace(/\(.*?\)/g, '')
     .trim();
   
   if (!cleanText || cleanText.length < 2) return null;
@@ -229,7 +241,7 @@ export async function generateSpeechFromText(text: string, voiceName: string = '
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-preview-tts",
       contents: [{
-        parts: [{ text: `Say: ${cleanText}` }] // Concise instruction
+        parts: [{ text: `Say: ${cleanText}` }]
       }],
       config: {
         responseModalities: [Modality.AUDIO],
