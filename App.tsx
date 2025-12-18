@@ -105,6 +105,33 @@ const App: React.FC = () => {
     }
   };
 
+  const handleRestartLesson = () => {
+    if (!currentSubTopic) return;
+    if (confirm("Restart this lesson? This will clear your chat history for this topic.")) {
+      const updated = clearTopicHistory(progress, currentSubTopic.id);
+      setProgress(updated);
+      handleTopicSelect(currentTopic!, currentSubTopic!);
+      setShowSettings(false);
+    }
+  };
+
+  const handleSkipLesson = () => {
+    if (!currentTopic || !currentSubTopic) return;
+    const updated = completeSubTopic(currentTopic.id, currentSubTopic.id, progress);
+    setProgress(updated);
+    setView(AppView.DASHBOARD);
+    setShowSettings(false);
+    alert("Lesson marked as complete!");
+  };
+
+  const handleUnlockAll = () => {
+    const updated = { ...progress, unlockedTopicIds: CURRICULUM.map(t => t.id) };
+    setProgress(updated);
+    saveProgress(updated);
+    setShowSettings(false);
+    alert("All topics unlocked!");
+  };
+
   const toggleLiveMode = async () => {
     if (isLiveMode) {
       liveSession?.close();
@@ -234,7 +261,7 @@ const App: React.FC = () => {
   if (view === AppView.DASHBOARD) return (
     <>
       {showProfile && <ProfileModal progress={progress} onClose={() => setShowProfile(false)} onUpdateName={handleUpdateName} onUpdateLevel={handleUpdateLevel} />}
-      {showSettings && <SettingsModal progress={progress} onClose={() => setShowSettings(false)} onUpdatePreferences={handleUpdatePreferences} onUnlockAll={() => { setProgress({ ...progress, unlockedTopicIds: CURRICULUM.map(t => t.id) }); setShowSettings(false); }} />}
+      {showSettings && <SettingsModal progress={progress} onClose={() => setShowSettings(false)} onUpdatePreferences={handleUpdatePreferences} onUnlockAll={handleUnlockAll} />}
       <Dashboard progress={progress} onSelectTopic={handleTopicSelect} onReset={() => { localStorage.clear(); window.location.reload(); }} onOpenProfile={() => setShowProfile(true)} onOpenSettings={() => setShowSettings(true)} />
     </>
   );
@@ -244,6 +271,16 @@ const App: React.FC = () => {
 
   return (
     <div className="flex flex-col h-screen bg-gray-50 overflow-hidden">
+      {showSettings && (
+        <SettingsModal 
+          progress={progress} 
+          onClose={() => setShowSettings(false)} 
+          onUpdatePreferences={handleUpdatePreferences} 
+          onRestartLesson={handleRestartLesson} 
+          onSkipCurrentLesson={handleSkipLesson}
+          onUnlockAll={handleUnlockAll}
+        />
+      )}
       <header className="bg-white border-b px-4 py-3 flex justify-between items-center shadow-sm z-10">
         <button onClick={() => setView(AppView.DASHBOARD)} className="text-gray-500 font-bold">‹ Back</button>
         <div className="text-center">
@@ -252,15 +289,23 @@ const App: React.FC = () => {
         </div>
         <div className="flex gap-2">
           <button onClick={() => setShowGameMenu(true)} className="bg-emerald-100 text-emerald-700 text-xs px-3 py-1.5 rounded-full font-bold">🎮 Play</button>
+          <button onClick={() => setShowSettings(true)} className="p-1.5 text-gray-400 hover:text-emerald-500">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
+              <path fillRule="evenodd" d="M11.078 2.25c-.917 0-1.699.663-1.85 1.567L9.05 4.889c-.02.12-.115.26-.297.348a7.493 7.493 0 00-.986.57c-.166.115-.334.126-.45.083L6.3 5.508a1.875 1.875 0 00-2.282.819l-.922 1.597a1.875 1.875 0 00.432 2.385l.84.692c.095.078.17.229.154.43a7.598 7.598 0 000 1.139c.015.2-.059.352-.153.43l-.841.692a1.875 1.875 0 00-.432 2.385l.922 1.597a1.875 1.875 0 002.282.818l1.019-.382c.115-.043.283-.031.45.082.312.214.641.405.985.57.182.088.277.228.297.35l.178 1.071c.151.904.933 1.567 1.85 1.567h1.844c.916 0 1.699-.663 1.85-1.567l.178-1.072c.02-.12.114-.26.297-.349.344-.165.673-.356.985-.57.167-.114.335-.125.45-.082l1.02.382a1.875 1.875 0 002.28-.819l.922-1.597a1.875 1.875 0 00-.432-2.385l-.84-.692c-.095-.078-.17-.229-.154-.43a7.614 7.614 0 000-1.139c-.016-.2.059-.352.153-.43l.84-.692c.708-.582.891-1.59.433-2.385l-.922-1.597a1.875 1.875 0 00-2.282-.818l-1.02.382c-.114.043-.282.031-.449-.083a7.49 7.49 0 00-.985-.57c-.183-.087-.277-.227-.297-.348l-.179-1.072a1.875 1.875 0 00-1.85-1.567h-1.843zM12 15.75a3.75 3.75 0 100-7.5 3.75 3.75 0 000 7.5z" clipRule="evenodd" />
+            </svg>
+          </button>
         </div>
       </header>
 
       <div className="flex-1 overflow-y-auto p-4 pb-24 max-w-2xl mx-auto w-full">
         {!isLiveMode ? messages.map((msg) => <MessageBubble key={msg.id} message={msg} onPlayAudio={handlePlayAudio} isLoadingAudio={loadingAudioId === msg.id} />) : (
           <div className="flex flex-col items-center justify-center min-h-[50vh] text-center p-8">
-            <div className="w-32 h-32 bg-emerald-100 rounded-full flex items-center justify-center mb-6 animate-pulse border-4 border-emerald-200">🎙️</div>
+            <div className="w-32 h-32 bg-emerald-100 rounded-full flex items-center justify-center mb-6 animate-pulse border-4 border-emerald-200 text-5xl">🎙️</div>
             <h2 className="text-2xl font-black text-gray-800 uppercase">Listening...</h2>
-            <div className="w-full bg-white rounded-3xl p-6 shadow-xl mt-6 italic text-gray-700">{liveTranscription || "Waiting for your voice..."}</div>
+            <div className="w-full bg-white rounded-3xl p-6 shadow-xl mt-6 italic text-gray-700 min-h-[100px] flex items-center justify-center">
+              {liveTranscription || "Waiting for your voice..."}
+            </div>
+            <button onClick={toggleLiveMode} className="mt-8 bg-red-500 text-white font-bold px-8 py-3 rounded-full shadow-lg">STOP VOICE</button>
           </div>
         )}
         {isTyping && <div className="text-xs text-gray-400 ml-4 animate-pulse">Maestro is typing...</div>}
@@ -272,9 +317,13 @@ const App: React.FC = () => {
       {showGameMenu && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
            <div className="bg-white rounded-3xl p-4 w-full max-w-xs shadow-2xl">
-              <h3 className="text-center font-black text-gray-800 mb-4">Practice Tools</h3>
-              <button onClick={handleStartFlashcards} className="w-full text-left px-4 py-4 rounded-2xl bg-white hover:bg-emerald-50 text-gray-800 font-bold flex items-center gap-3 border mb-2">🎴 Flashcards</button>
-              <button onClick={handleStartQuiz} disabled={messages.length < 2} className={`w-full text-left px-4 py-4 rounded-2xl font-bold flex items-center gap-3 border ${messages.length < 2 ? 'bg-gray-50 text-gray-500 cursor-not-allowed' : 'bg-white hover:bg-emerald-50 text-gray-800'}`}>📝 Knowledge Quiz</button>
+              <h3 className="text-center font-black text-gray-800 mb-4 uppercase text-sm tracking-widest">Practice Tools</h3>
+              <button onClick={handleStartFlashcards} className="w-full text-left px-4 py-4 rounded-2xl bg-white hover:bg-emerald-50 text-gray-800 font-bold flex items-center gap-3 border mb-2">
+                <span className="text-xl">🎴</span> Flashcards
+              </button>
+              <button onClick={handleStartQuiz} className={`w-full text-left px-4 py-4 rounded-2xl font-bold flex items-center gap-3 border bg-white hover:bg-emerald-50 text-gray-800`}>
+                <span className="text-xl">📝</span> Knowledge Quiz
+              </button>
               <button onClick={() => setShowGameMenu(false)} className="w-full text-center py-3 text-gray-400 text-sm font-bold mt-2">Close</button>
            </div>
         </div>

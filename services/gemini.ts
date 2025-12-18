@@ -3,8 +3,6 @@ import { UserLevel, Message, Topic, SubTopic, QuizQuestion, Flashcard } from "..
 
 /**
  * Helper to safely get an AI instance.
- * Using non-null assertion on process.env.API_KEY to satisfy strict build environments 
- * where env vars are marked as potentially undefined.
  */
 const getAI = () => {
   const apiKey = process.env.API_KEY!;
@@ -78,7 +76,6 @@ const prepareHistory = (history: Message[]) => {
     }
   }
 
-  // Ensure history ends with the correct role for chat start if needed
   if (result.length > 0 && result[result.length - 1].role === 'user') {
     result.pop();
   }
@@ -108,7 +105,13 @@ async function callWithRetry<T>(fn: () => Promise<T>, retries = 3, initialDelay 
 const getSystemInstruction = (level: UserLevel, topic?: Topic, subTopic?: SubTopic, userName?: string) => {
   let base = `You are "Sam's Maestro", a world-class Spanish language tutor. 
   Your goal is to help ${userName || 'the user'} master Spanish from ${level} level.
-  CORE RULE: ONE CONCEPT AT A TIME. Keep responses concise (max 3 sentences). Provide deep explanation over multiple turns.
+  
+  BILINGUAL SCAFFOLDING RULES (STRICT ADHERENCE):
+  - IF Level is Beginner: Speak English 80% of the time. Explain Spanish phrases in English. Always translate what you just said in Spanish to English immediately. Your goal is to make the user feel comfortable and understood.
+  - IF Level is Intermediate: Speak Spanish 70% of the time. Use English for complex explanations, grammar rules, or when the user seems confused. Provide English translations for new vocabulary.
+  - IF Level is Expert: Speak 100% Spanish. Use high-level vocabulary and idioms.
+  
+  CORE RULE: ONE CONCEPT AT A TIME. Keep responses concise (max 3 sentences).
   MANDATORY: Start every message with [${subTopic?.title || 'Maestro'}].`;
 
   if (topic && subTopic) {
@@ -255,7 +258,7 @@ export const connectLiveMaestro = (
   }
 ) => {
   const ai = getAI();
-  const systemInstruction = getSystemInstruction(level, topic, subTopic, userName) + " Voice session started.";
+  const systemInstruction = getSystemInstruction(level, topic, subTopic, userName) + " We are in a LIVE voice session. Be extra helpful and use English for explanations if the user is a Beginner or Intermediate learner.";
 
   return ai.live.connect({
     model: 'gemini-2.5-flash-native-audio-preview-09-2025',
@@ -271,7 +274,6 @@ export const connectLiveMaestro = (
     callbacks: {
       onopen: () => console.log("Live Opened"),
       onmessage: async (message: LiveServerMessage) => {
-        // Extract and narrow optional properties to satisfy TypeScript
         const audioData = message.serverContent?.modelTurn?.parts?.[0]?.inlineData?.data;
         if (audioData) {
           callbacks.onAudio(audioData);
