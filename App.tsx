@@ -78,7 +78,15 @@ const App: React.FC = () => {
   };
 
   const handleLevelSelect = (level: UserLevel) => {
-    const newProgress = { ...progress, level };
+    // Determine starting unlocked modules based on level
+    let unlocked = ['module-1'];
+    if (level === UserLevel.INTERMEDIATE) {
+      unlocked = CURRICULUM.filter(t => t.requiredLevel === UserLevel.BEGINNER || t.id === 'module-7').map(t => t.id);
+    } else if (level === UserLevel.EXPERT) {
+      unlocked = CURRICULUM.filter(t => t.requiredLevel === UserLevel.BEGINNER || t.requiredLevel === UserLevel.INTERMEDIATE || t.id === 'module-11').map(t => t.id);
+    }
+
+    const newProgress = { ...progress, level, unlockedTopicIds: unlocked };
     setProgress(newProgress);
     saveProgress(newProgress);
     setView(AppView.DASHBOARD);
