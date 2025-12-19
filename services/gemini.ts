@@ -111,11 +111,10 @@ const getSystemInstruction = (level: UserLevel, topic?: Topic, subTopic?: SubTop
   - IF Level is Intermediate: Speak 50% Spanish, 50% English. Provide translations for any complex Spanish sentences. Use English to explain grammar.
   - IF Level is Expert: Speak 100% Spanish.
   
-  CORE RULE: ONE CONCEPT AT A TIME. Keep responses short. 
-  MANDATORY: Start every message with [${subTopic?.title || 'Maestro'}].`;
+  CORE RULE: ONE CONCEPT AT A TIME. Keep responses short and conversational.`;
 
   if (topic && subTopic) {
-    base += `\n\nCURRENT LESSON: [Topic: ${topic.title} | Sub-Topic: ${subTopic.title}] Goal: ${subTopic.description}`;
+    base += `\n\nCURRENT LESSON CONTEXT: [Topic: ${topic.title} | Sub-Topic: ${subTopic.title}] Goal: ${subTopic.description}`;
   }
   return base;
 };
@@ -270,7 +269,7 @@ export const connectLiveMaestro = (
 ) => {
   const ai = getAI();
   const systemInstruction = getSystemInstruction(level, topic, subTopic, userName) + 
-    "\nLIVE VOICE MODE: You are currently talking to the user. " +
+    "\nLIVE VOICE MODE: You are currently talking to the user. Do NOT repeat the lesson title or bracketed tags. Just speak naturally. " +
     "IF USER IS BEGINNER OR INTERMEDIATE: ALWAYS say a sentence in Spanish, then IMMEDIATELY repeat it in English for comprehension. Example: '¿Cómo estás? How are you?'";
 
   return ai.live.connect({
