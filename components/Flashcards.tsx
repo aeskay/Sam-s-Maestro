@@ -70,12 +70,11 @@ const Flashcards: React.FC<FlashcardsProps> = ({ cards, onComplete, onClose, onS
     touchEndX.current = null;
   };
 
-  const handleSpeak = (e: React.MouseEvent, text: string) => {
+  const handleSpeak = (e: React.MouseEvent | React.TouchEvent, text: string) => {
     e.stopPropagation();
     onSpeak(text);
   };
 
-  // Dynamic transform class based on swipe direction for visual feedback
   const getSlideClass = () => {
     if (slideDirection === 'left') return 'translate-x-[-100%] opacity-0 scale-95';
     if (slideDirection === 'right') return 'translate-x-[100%] opacity-0 scale-95';
@@ -122,16 +121,16 @@ const Flashcards: React.FC<FlashcardsProps> = ({ cards, onComplete, onClose, onS
               className="absolute inset-0 bg-white rounded-3xl flex flex-col items-center justify-center p-8 text-center"
               style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}
             >
-              <div className="mb-6 relative">
+              <div className="mb-6 relative pointer-events-auto">
                  <span className="text-5xl block mb-2">🇪🇸</span>
                  <button 
                    onClick={(e) => handleSpeak(e, currentCard.front)}
-                   className="mx-auto flex items-center gap-2 px-4 py-2 bg-violet-100 text-violet-600 rounded-full hover:bg-violet-200 transition-all active:scale-95 shadow-sm"
+                   onPointerDown={(e) => e.stopPropagation()}
+                   className="mx-auto flex items-center gap-2 px-6 py-3 bg-violet-100 text-violet-600 rounded-full hover:bg-violet-200 transition-all active:scale-95 shadow-md relative z-50"
                    title="Listen to pronunciation"
                  >
-                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
+                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
                      <path d="M13.5 4.06c0-1.336-1.616-2.005-2.56-1.06l-4.5 4.5H4.5A2.25 2.25 0 002.25 9.75v4.5a2.25 2.25 0 002.25 2.25h2.06l4.5 4.5c.944.945 2.56.276 2.56-1.06V4.06zM18.54 5.44a.75.75 0 011.06 0 8.25 8.25 0 010 11.68.75.75 0 01-1.06-1.06 6.75 6.75 0 000-9.56.75.75 0 010-1.06z" />
-                     <path d="M15.91 8.07a.75.75 0 011.06 0 4.5 4.5 0 010 6.36.75.75 0 01-1.06-1.06 3 3 0 000-4.24.75.75 0 010-1.06z" />
                    </svg>
                    <span className="text-xs font-black uppercase">Listen</span>
                  </button>
@@ -154,17 +153,18 @@ const Flashcards: React.FC<FlashcardsProps> = ({ cards, onComplete, onClose, onS
                <h3 className="text-2xl font-bold text-white mb-2 leading-tight">{currentCard.back}</h3>
                <div className="w-16 h-1 bg-violet-400/30 rounded-full my-6 flex-shrink-0"></div>
                
-               <div className="relative group w-full px-2">
+               <div className="relative group w-full px-2 pointer-events-auto">
                  <div className="mb-6">
                     <p className="text-violet-100 italic text-lg leading-relaxed mb-2">"{currentCard.example}"</p>
                     <p className="text-violet-300 text-sm font-medium border-t border-violet-400/20 pt-2">{currentCard.exampleTranslation}</p>
                  </div>
                  <button 
                    onClick={(e) => handleSpeak(e, currentCard.example)}
-                   className="mx-auto flex items-center gap-2 px-3 py-1.5 bg-violet-700 text-violet-200 rounded-full hover:bg-violet-600 transition-all active:scale-95 border border-violet-600 shadow-sm"
+                   onPointerDown={(e) => e.stopPropagation()}
+                   className="mx-auto flex items-center gap-2 px-4 py-2 bg-violet-700 text-violet-200 rounded-full hover:bg-violet-600 transition-all active:scale-95 border border-violet-600 shadow-md relative z-50"
                    title="Listen to example sentence"
                  >
-                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-4 h-4">
+                   <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
                      <path d="M13.5 4.06c0-1.336-1.616-2.005-2.56-1.06l-4.5 4.5H4.5A2.25 2.25 0 002.25 9.75v4.5a2.25 2.25 0 002.25 2.25h2.06l4.5 4.5c.944.945 2.56.276 2.56-1.06V4.06z" />
                    </svg>
                    <span className="text-[10px] font-black uppercase">Listen Example</span>
@@ -180,7 +180,6 @@ const Flashcards: React.FC<FlashcardsProps> = ({ cards, onComplete, onClose, onS
       <div className="p-8 pb-12 bg-violet-900/40 backdrop-blur-md z-10 border-t border-violet-500/30">
         <div className="max-w-sm mx-auto flex flex-col gap-4">
           <div className="flex gap-4">
-            {/* Previous Button */}
             <button 
               onClick={handlePrev}
               disabled={isFirst}
@@ -193,7 +192,6 @@ const Flashcards: React.FC<FlashcardsProps> = ({ cards, onComplete, onClose, onS
               ← Prev
             </button>
             
-            {/* Next or Finish Button */}
             {isLast ? (
               <button 
                 onClick={onComplete}

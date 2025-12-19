@@ -210,7 +210,7 @@ const App: React.FC = () => {
           currentSubTopic, 
           progress.userName || "Student", 
           progress.preferences.voiceName,
-          messages, // Pass existing messages as context
+          messages,
           {
             onAudio: async (base64) => {
               if (!audioContextRef.current) return;
@@ -334,7 +334,13 @@ const App: React.FC = () => {
   const handlePlayAudio = async (msg: Message, isAutoPlay = false) => {
     initAudioContext();
     if (!audioContextRef.current) return;
-    if (activeSourceRef.current) { activeSourceRef.current.stop(); activeSourceRef.current = null; }
+    
+    // Safety stop
+    if (activeSourceRef.current) {
+      try { activeSourceRef.current.stop(); } catch (e) {}
+      activeSourceRef.current = null;
+    }
+
     setLoadingAudioId(msg.id);
     try {
       const base64Data = await generateSpeechFromText(msg.text, progress.preferences.voiceName);
@@ -352,7 +358,13 @@ const App: React.FC = () => {
   const handleQuickSpeak = async (text: string) => {
     initAudioContext();
     if (!audioContextRef.current) return;
-    if (activeSourceRef.current) { activeSourceRef.current.stop(); activeSourceRef.current = null; }
+    
+    // Safety stop
+    if (activeSourceRef.current) {
+      try { activeSourceRef.current.stop(); } catch (e) {}
+      activeSourceRef.current = null;
+    }
+
     try {
       const base64Data = await generateSpeechFromText(text, progress.preferences.voiceName);
       if (base64Data) {
