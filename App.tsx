@@ -78,15 +78,29 @@ const App: React.FC = () => {
   };
 
   const handleLevelSelect = (level: UserLevel) => {
-    // Determine starting unlocked modules based on level
     let unlocked = ['module-1'];
+    
     if (level === UserLevel.INTERMEDIATE) {
-      unlocked = CURRICULUM.filter(t => t.requiredLevel === UserLevel.BEGINNER || t.id === 'module-7').map(t => t.id);
+      unlocked = CURRICULUM
+        .filter(t => t.requiredLevel === UserLevel.BEGINNER || t.id === 'module-7')
+        .map(t => t.id);
     } else if (level === UserLevel.EXPERT) {
-      unlocked = CURRICULUM.filter(t => t.requiredLevel === UserLevel.BEGINNER || t.requiredLevel === UserLevel.INTERMEDIATE || t.id === 'module-11').map(t => t.id);
+      unlocked = CURRICULUM
+        .filter(t => t.requiredLevel === UserLevel.BEGINNER || t.requiredLevel === UserLevel.INTERMEDIATE || t.id === 'module-11')
+        .map(t => t.id);
     }
 
-    const newProgress = { ...progress, level, unlockedTopicIds: unlocked };
+    const newProgress = { 
+      ...progress, 
+      level, 
+      unlockedTopicIds: unlocked,
+      completedSubTopicIds: level === UserLevel.BEGINNER ? [] : 
+        CURRICULUM
+          .filter(t => (level === UserLevel.INTERMEDIATE && t.requiredLevel === UserLevel.BEGINNER) || 
+                       (level === UserLevel.EXPERT && (t.requiredLevel === UserLevel.BEGINNER || t.requiredLevel === UserLevel.INTERMEDIATE)))
+          .flatMap(t => t.subTopics.map(st => st.id))
+    };
+    
     setProgress(newProgress);
     saveProgress(newProgress);
     setView(AppView.DASHBOARD);
@@ -188,11 +202,12 @@ const App: React.FC = () => {
               nextStartTimeRef.current = startAt + buffer.duration;
             },
             onTranscription: (text, isModel) => {
+              if (!text.trim()) return;
               setLiveMessages(prev => {
                 const role = isModel ? 'model' : 'user';
                 if (prev.length > 0 && prev[prev.length - 1].role === role) {
                   const last = prev[prev.length - 1];
-                  return [...prev.slice(0, -1), { ...last, text: last.text + text }];
+                  return [...prev.slice(0, -1), { ...last, text: last.text + " " + text }];
                 }
                 return [...prev, { text, role }];
               });
@@ -230,7 +245,7 @@ const App: React.FC = () => {
     setMessages(messagesAfterUser);
     setIsTyping(true);
     try {
-      const response = await sendMessageToGemini(messages, text, progress.level!, currentTopic, currentSubTopic, progress.userName || undefined);
+      const response = await sendMessageToGemini(messagesAfterUser, text, progress.level!, currentTopic, currentSubTopic, progress.userName || undefined);
       const newAiMsg: Message = { id: (Date.now() + 1).toString(), role: 'model', text: response.text, timestamp: Date.now() };
       const messagesAfterAi = [...messagesAfterUser, newAiMsg];
       setMessages(messagesAfterAi);
@@ -269,7 +284,7 @@ const App: React.FC = () => {
   const handleStartFlashcards = async () => {
     if (!currentTopic || !currentSubTopic || !progress.level) return;
     setIsLoadingGame(true);
-    setLoadingGameText("Maestro is generating flashcards based on this lesson...");
+    setLoadingGameText("Maestro is generating 15 detailed flashcards for you...");
     setShowGameMenu(false);
     try {
       const cards = await generateFlashcardsForTopic(currentTopic, currentSubTopic, progress.level);
@@ -312,6 +327,19 @@ const App: React.FC = () => {
     } catch (e) { setLoadingAudioId(null); }
   };
 
+  const handleQuickSpeak = async (text: string) => {
+    initAudioContext();
+    if (!audioContextRef.current) return;
+    if (activeSourceRef.current) { activeSourceRef.current.stop(); activeSourceRef.current = null; }
+    try {
+      const base64Data = await generateSpeechFromText(text, progress.preferences.voiceName);
+      if (base64Data) {
+        const buffer = await decodeAudioData(base64Data, audioContextRef.current);
+        activeSourceRef.current = playAudioBuffer(audioContextRef.current, buffer);
+      }
+    } catch (e) { console.error("TTS failed", e); }
+  };
+
   useEffect(() => { 
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); 
   }, [messages, isTyping, liveMessages]);
@@ -328,7 +356,14 @@ const App: React.FC = () => {
   );
 
   if (view === AppView.QUIZ) return <Quiz questions={quizQuestions} onComplete={handleQuizComplete} onCancel={() => setView(AppView.DASHBOARD)} />;
-  if (view === AppView.FLASHCARDS) return <Flashcards cards={flashcards} onComplete={() => setView(AppView.DASHBOARD)} onClose={() => setView(AppView.DASHBOARD)} />;
+  if (view === AppView.FLASHCARDS) return (
+    <Flashcards 
+      cards={flashcards} 
+      onComplete={() => setView(AppView.DASHBOARD)} 
+      onClose={() => setView(AppView.DASHBOARD)} 
+      onSpeak={handleQuickSpeak}
+    />
+  );
 
   return (
     <div className="flex flex-col h-screen bg-gray-50 overflow-hidden">

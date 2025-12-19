@@ -24,6 +24,7 @@ export interface Flashcard {
   front: string; // Spanish word/phrase
   back: string; // English translation
   example: string; // Example sentence in Spanish
+  exampleTranslation: string; // English translation of the example sentence
 }
 
 export interface SubTopic {

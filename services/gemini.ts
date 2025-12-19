@@ -198,8 +198,17 @@ export async function generateQuizForTopic(topic: Topic, subTopic: SubTopic, lev
 export async function generateFlashcardsForTopic(topic: Topic, subTopic: SubTopic, level: UserLevel): Promise<Flashcard[]> {
   return callWithRetry(async () => {
     const ai = getAI();
-    const prompt = `Generate 10 Spanish flashcards for: "${subTopic.title}" at ${level} level. 
-    Front: Spanish word/phrase. Back: English translation. Example: A simple sentence using the word in Spanish.`;
+    const prompt = `Generate exactly 15 distinct and high-quality Spanish flashcards for the lesson: "${subTopic.title}" (Topic: ${topic.title}) at ${level} level. 
+    Focus on:
+    - Key nouns, verbs, and adjectives central to this sub-topic.
+    - Common phrases or idiomatic expressions relevant to this context.
+    - Essential grammar words if they apply to the theme.
+    
+    Front: Spanish word or phrase.
+    Back: Clear English translation.
+    Example: A short, natural example sentence in Spanish using that word/phrase.
+    Example Translation: The clear English translation of that example sentence.`;
+    
     const response = await ai.models.generateContent({
       model: "gemini-3-flash-preview",
       contents: prompt,
@@ -212,9 +221,10 @@ export async function generateFlashcardsForTopic(topic: Topic, subTopic: SubTopi
             properties: {
               front: { type: Type.STRING },
               back: { type: Type.STRING },
-              example: { type: Type.STRING }
+              example: { type: Type.STRING },
+              exampleTranslation: { type: Type.STRING }
             },
-            required: ["front", "back", "example"]
+            required: ["front", "back", "example", "exampleTranslation"]
           }
         }
       }
