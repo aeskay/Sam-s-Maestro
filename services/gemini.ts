@@ -260,6 +260,7 @@ export const connectLiveMaestro = (
   subTopic: SubTopic,
   userName: string,
   voiceName: string,
+  history: Message[],
   callbacks: {
     onAudio: (base64: string) => void,
     onTranscription: (text: string, isModel: boolean) => void,
@@ -268,9 +269,16 @@ export const connectLiveMaestro = (
   }
 ) => {
   const ai = getAI();
+  
+  // Format history to give the Live model context
+  const historySummary = history.length > 0 
+    ? "\n\nCONVERSATION HISTORY SO FAR:\n" + history.slice(-10).map(m => `${m.role === 'user' ? 'Student' : 'Maestro'}: ${m.text}`).join('\n')
+    : "";
+
   const systemInstruction = getSystemInstruction(level, topic, subTopic, userName) + 
     "\nLIVE VOICE MODE: You are currently talking to the user. Do NOT repeat the lesson title or bracketed tags. Just speak naturally. " +
-    "IF USER IS BEGINNER OR INTERMEDIATE: ALWAYS say a sentence in Spanish, then IMMEDIATELY repeat it in English for comprehension. Example: '¿Cómo estás? How are you?'";
+    "IF USER IS BEGINNER OR INTERMEDIATE: ALWAYS say a sentence in Spanish, then IMMEDIATELY repeat it in English for comprehension. Example: '¿Cómo estás? How are you?'" +
+    historySummary;
 
   return ai.live.connect({
     model: 'gemini-2.5-flash-native-audio-preview-09-2025',

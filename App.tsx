@@ -176,6 +176,23 @@ const App: React.FC = () => {
 
   const toggleLiveMode = async () => {
     if (isLiveMode) {
+      // PERSIST LIVE CONVERSATION BACK TO HISTORY
+      if (liveMessages.length > 0) {
+        const newMessagesFromLive: Message[] = liveMessages.map((m, idx) => ({
+          id: `live-persisted-${Date.now()}-${idx}`,
+          role: m.role,
+          text: m.text,
+          timestamp: Date.now()
+        }));
+        
+        const updatedMessages = [...messages, ...newMessagesFromLive];
+        setMessages(updatedMessages);
+        if (currentSubTopic) {
+          const updatedProgress = saveTopicHistory(progress, currentSubTopic.id, updatedMessages);
+          setProgress(updatedProgress);
+        }
+      }
+
       liveSession?.close();
       setLiveSession(null);
       setIsLiveMode(false);
@@ -188,7 +205,12 @@ const App: React.FC = () => {
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const sessionPromise = connectLiveMaestro(
-          progress.level, currentTopic, currentSubTopic, progress.userName || "Student", progress.preferences.voiceName,
+          progress.level, 
+          currentTopic, 
+          currentSubTopic, 
+          progress.userName || "Student", 
+          progress.preferences.voiceName,
+          messages, // Pass existing messages as context
           {
             onAudio: async (base64) => {
               if (!audioContextRef.current) return;
