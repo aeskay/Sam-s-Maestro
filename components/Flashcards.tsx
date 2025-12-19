@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { Flashcard } from '../types';
 
 interface FlashcardsProps {
@@ -11,18 +11,63 @@ interface FlashcardsProps {
 const Flashcards: React.FC<FlashcardsProps> = ({ cards, onComplete, onClose, onSpeak }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
+  const [slideDirection, setSlideDirection] = useState<'left' | 'right' | 'none'>('none');
+
+  const touchStartX = useRef<number | null>(null);
+  const touchEndX = useRef<number | null>(null);
+  const MIN_SWIPE_DISTANCE = 50;
 
   const currentCard = cards[currentIndex];
   const isLast = currentIndex === cards.length - 1;
+  const isFirst = currentIndex === 0;
 
-  const handleNext = (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const handleNext = () => {
     if (isLast) {
       onComplete();
     } else {
-      setIsFlipped(false);
-      setTimeout(() => setCurrentIndex(prev => prev + 1), 300);
+      setSlideDirection('left');
+      setTimeout(() => {
+        setIsFlipped(false);
+        setCurrentIndex(prev => prev + 1);
+        setSlideDirection('none');
+      }, 200);
     }
+  };
+
+  const handlePrev = () => {
+    if (!isFirst) {
+      setSlideDirection('right');
+      setTimeout(() => {
+        setIsFlipped(false);
+        setCurrentIndex(prev => prev - 1);
+        setSlideDirection('none');
+      }, 200);
+    }
+  };
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    touchStartX.current = e.targetTouches[0].clientX;
+  };
+
+  const onTouchMove = (e: React.TouchEvent) => {
+    touchEndX.current = e.targetTouches[0].clientX;
+  };
+
+  const onTouchEnd = () => {
+    if (!touchStartX.current || !touchEndX.current) return;
+    
+    const distance = touchStartX.current - touchEndX.current;
+    const isLeftSwipe = distance > MIN_SWIPE_DISTANCE;
+    const isRightSwipe = distance < -MIN_SWIPE_DISTANCE;
+
+    if (isLeftSwipe) {
+      handleNext();
+    } else if (isRightSwipe) {
+      handlePrev();
+    }
+
+    touchStartX.current = null;
+    touchEndX.current = null;
   };
 
   const handleSpeak = (e: React.MouseEvent, text: string) => {
@@ -30,16 +75,38 @@ const Flashcards: React.FC<FlashcardsProps> = ({ cards, onComplete, onClose, onS
     onSpeak(text);
   };
 
+  // Dynamic transform class based on swipe direction for visual feedback
+  const getSlideClass = () => {
+    if (slideDirection === 'left') return 'translate-x-[-100%] opacity-0 scale-95';
+    if (slideDirection === 'right') return 'translate-x-[100%] opacity-0 scale-95';
+    return 'translate-x-0 opacity-100 scale-100';
+  };
+
   return (
-    <div className="flex flex-col h-screen bg-violet-600 text-white overflow-hidden">
+    <div 
+      className="flex flex-col h-screen bg-violet-600 text-white overflow-hidden touch-none"
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+    >
       <div className="p-6 flex justify-between items-center z-10">
         <button onClick={onClose} className="text-violet-200 hover:text-white font-bold transition-colors">✕ Exit</button>
-        <span className="font-bold bg-violet-700 px-3 py-1 rounded-full text-xs">Card {currentIndex + 1}/{cards.length}</span>
+        <div className="flex flex-col items-center">
+          <span className="font-bold bg-violet-700 px-3 py-1 rounded-full text-[10px] uppercase tracking-wider">
+            Card {currentIndex + 1} of {cards.length}
+          </span>
+          <div className="flex gap-1 mt-2">
+            {cards.map((_, i) => (
+              <div key={i} className={`h-1 rounded-full transition-all duration-300 ${i === currentIndex ? 'w-4 bg-white' : 'w-1 bg-white/30'}`} />
+            ))}
+          </div>
+        </div>
+        <div className="w-10"></div> {/* Spacer for balance */}
       </div>
 
       <div className="flex-1 flex items-center justify-center p-6" style={{ perspective: '1000px' }}>
         <div 
-           className="w-full max-w-sm aspect-[3/4] relative cursor-pointer group"
+           className={`w-full max-w-sm aspect-[3/4] relative cursor-pointer transition-all duration-300 ease-out ${getSlideClass()}`}
            onClick={() => setIsFlipped(!isFlipped)}
         >
           <div 
@@ -57,7 +124,6 @@ const Flashcards: React.FC<FlashcardsProps> = ({ cards, onComplete, onClose, onS
             >
               <div className="mb-6 relative">
                  <span className="text-5xl block mb-2">🇪🇸</span>
-                 {/* Speaker Button on Front */}
                  <button 
                    onClick={(e) => handleSpeak(e, currentCard.front)}
                    className="mx-auto flex items-center gap-2 px-4 py-2 bg-violet-100 text-violet-600 rounded-full hover:bg-violet-200 transition-all active:scale-95 shadow-sm"
@@ -71,8 +137,9 @@ const Flashcards: React.FC<FlashcardsProps> = ({ cards, onComplete, onClose, onS
                  </button>
               </div>
               <h2 className="text-3xl font-black text-gray-800 break-words leading-tight px-2">{currentCard.front}</h2>
-              <div className="mt-8">
-                <p className="text-gray-400 text-[10px] uppercase tracking-widest font-black">Tap card to see translation</p>
+              <div className="mt-8 flex flex-col items-center gap-4">
+                <p className="text-gray-400 text-[10px] uppercase tracking-widest font-black">Tap to flip • Swipe to navigate</p>
+                {!isFirst && <span className="text-violet-400 text-xs font-bold animate-pulse">← Previous</span>}
               </div>
             </div>
 
@@ -112,13 +179,19 @@ const Flashcards: React.FC<FlashcardsProps> = ({ cards, onComplete, onClose, onS
       </div>
 
       <div className="p-8 pb-12 bg-violet-900/40 backdrop-blur-md z-10 border-t border-violet-500/30">
-        <div className="max-w-sm mx-auto">
-          <button 
-            onClick={handleNext}
-            className="w-full bg-white text-violet-700 font-black py-4 rounded-2xl shadow-xl active:scale-95 transition-all uppercase tracking-widest text-sm hover:bg-violet-50"
-          >
-            {isLast ? 'Complete Review' : 'Next Word →'}
-          </button>
+        <div className="max-w-sm mx-auto flex flex-col gap-4">
+          <div className="flex justify-between items-center text-xs font-black uppercase text-violet-300 tracking-tighter">
+             <span className={isFirst ? 'opacity-0' : 'opacity-100'}>Swipe Right to Go Back</span>
+             <span className={isLast ? 'opacity-0' : 'opacity-100'}>Swipe Left for Next</span>
+          </div>
+          {isLast && (
+            <button 
+              onClick={onComplete}
+              className="w-full bg-white text-violet-700 font-black py-4 rounded-2xl shadow-xl active:scale-95 transition-all uppercase tracking-widest text-sm hover:bg-violet-50 border-b-4 border-violet-200"
+            >
+              Finish Review 🎉
+            </button>
+          )}
         </div>
       </div>
     </div>
