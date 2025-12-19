@@ -84,7 +84,7 @@ const Flashcards: React.FC<FlashcardsProps> = ({ cards, onComplete, onClose, onS
 
   return (
     <div 
-      className="flex flex-col h-screen bg-violet-600 text-white overflow-hidden touch-none"
+      className="flex flex-col h-screen bg-violet-600 text-white overflow-hidden"
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
@@ -101,7 +101,7 @@ const Flashcards: React.FC<FlashcardsProps> = ({ cards, onComplete, onClose, onS
             ))}
           </div>
         </div>
-        <div className="w-10"></div> {/* Spacer for balance */}
+        <div className="w-10"></div>
       </div>
 
       <div className="flex-1 flex items-center justify-center p-6" style={{ perspective: '1000px' }}>
@@ -138,8 +138,7 @@ const Flashcards: React.FC<FlashcardsProps> = ({ cards, onComplete, onClose, onS
               </div>
               <h2 className="text-3xl font-black text-gray-800 break-words leading-tight px-2">{currentCard.front}</h2>
               <div className="mt-8 flex flex-col items-center gap-4">
-                <p className="text-gray-400 text-[10px] uppercase tracking-widest font-black">Tap to flip • Swipe to navigate</p>
-                {!isFirst && <span className="text-violet-400 text-xs font-bold animate-pulse">← Previous</span>}
+                <p className="text-gray-400 text-[10px] uppercase tracking-widest font-black">Tap to flip</p>
               </div>
             </div>
 
@@ -180,18 +179,40 @@ const Flashcards: React.FC<FlashcardsProps> = ({ cards, onComplete, onClose, onS
 
       <div className="p-8 pb-12 bg-violet-900/40 backdrop-blur-md z-10 border-t border-violet-500/30">
         <div className="max-w-sm mx-auto flex flex-col gap-4">
-          <div className="flex justify-between items-center text-xs font-black uppercase text-violet-300 tracking-tighter">
-             <span className={isFirst ? 'opacity-0' : 'opacity-100'}>Swipe Right to Go Back</span>
-             <span className={isLast ? 'opacity-0' : 'opacity-100'}>Swipe Left for Next</span>
-          </div>
-          {isLast && (
+          <div className="flex gap-4">
+            {/* Previous Button */}
             <button 
-              onClick={onComplete}
-              className="w-full bg-white text-violet-700 font-black py-4 rounded-2xl shadow-xl active:scale-95 transition-all uppercase tracking-widest text-sm hover:bg-violet-50 border-b-4 border-violet-200"
+              onClick={handlePrev}
+              disabled={isFirst}
+              className={`flex-1 py-4 rounded-2xl font-black uppercase tracking-widest text-sm transition-all active:scale-95 shadow-lg ${
+                isFirst 
+                ? 'bg-violet-800/50 text-violet-400 cursor-not-allowed border border-violet-700/50' 
+                : 'bg-violet-700 text-white border-b-4 border-violet-900 hover:bg-violet-800'
+              }`}
             >
-              Finish Review 🎉
+              ← Prev
             </button>
-          )}
+            
+            {/* Next or Finish Button */}
+            {isLast ? (
+              <button 
+                onClick={onComplete}
+                className="flex-[1.5] bg-white text-violet-700 font-black py-4 rounded-2xl shadow-xl active:scale-95 transition-all uppercase tracking-widest text-sm hover:bg-violet-50 border-b-4 border-violet-200"
+              >
+                Finish 🎉
+              </button>
+            ) : (
+              <button 
+                onClick={handleNext}
+                className="flex-1 bg-white text-violet-700 font-black py-4 rounded-2xl shadow-xl active:scale-95 transition-all uppercase tracking-widest text-sm hover:bg-violet-50 border-b-4 border-violet-200"
+              >
+                Next →
+              </button>
+            )}
+          </div>
+          <p className="text-center text-[10px] uppercase font-black tracking-widest text-violet-300 opacity-60">
+            Use buttons or swipe to navigate
+          </p>
         </div>
       </div>
     </div>
