@@ -12,6 +12,7 @@ const Flashcards: React.FC<FlashcardsProps> = ({ cards, onComplete, onClose, onS
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isFlipped, setIsFlipped] = useState(false);
   const [slideDirection, setSlideDirection] = useState<'left' | 'right' | 'none'>('none');
+  const [isAudioLoading, setIsAudioLoading] = useState(false);
 
   const touchStartX = useRef<number | null>(null);
   const touchEndX = useRef<number | null>(null);
@@ -72,7 +73,10 @@ const Flashcards: React.FC<FlashcardsProps> = ({ cards, onComplete, onClose, onS
 
   const handleSpeak = (e: React.MouseEvent | React.TouchEvent, text: string) => {
     e.stopPropagation();
+    setIsAudioLoading(true);
     onSpeak(text);
+    // Visual feedback for click, reset after 1s
+    setTimeout(() => setIsAudioLoading(false), 1000);
   };
 
   const getSlideClass = () => {
@@ -121,12 +125,11 @@ const Flashcards: React.FC<FlashcardsProps> = ({ cards, onComplete, onClose, onS
               className="absolute inset-0 bg-white rounded-3xl flex flex-col items-center justify-center p-8 text-center"
               style={{ backfaceVisibility: 'hidden', WebkitBackfaceVisibility: 'hidden' }}
             >
-              <div className="mb-6 relative pointer-events-auto">
+              <div className="mb-6 relative">
                  <span className="text-5xl block mb-2">🇪🇸</span>
                  <button 
                    onClick={(e) => handleSpeak(e, currentCard.front)}
-                   onPointerDown={(e) => e.stopPropagation()}
-                   className="mx-auto flex items-center gap-2 px-6 py-3 bg-violet-100 text-violet-600 rounded-full hover:bg-violet-200 transition-all active:scale-95 shadow-md relative z-50"
+                   className={`mx-auto flex items-center gap-2 px-6 py-3 bg-violet-100 text-violet-600 rounded-full transition-all active:scale-95 shadow-md relative z-50 ${isAudioLoading ? 'opacity-50' : 'hover:bg-violet-200'}`}
                    title="Listen to pronunciation"
                  >
                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-6 h-6">
@@ -153,15 +156,14 @@ const Flashcards: React.FC<FlashcardsProps> = ({ cards, onComplete, onClose, onS
                <h3 className="text-2xl font-bold text-white mb-2 leading-tight">{currentCard.back}</h3>
                <div className="w-16 h-1 bg-violet-400/30 rounded-full my-6 flex-shrink-0"></div>
                
-               <div className="relative group w-full px-2 pointer-events-auto">
+               <div className="relative group w-full px-2">
                  <div className="mb-6">
                     <p className="text-violet-100 italic text-lg leading-relaxed mb-2">"{currentCard.example}"</p>
                     <p className="text-violet-300 text-sm font-medium border-t border-violet-400/20 pt-2">{currentCard.exampleTranslation}</p>
                  </div>
                  <button 
                    onClick={(e) => handleSpeak(e, currentCard.example)}
-                   onPointerDown={(e) => e.stopPropagation()}
-                   className="mx-auto flex items-center gap-2 px-4 py-2 bg-violet-700 text-violet-200 rounded-full hover:bg-violet-600 transition-all active:scale-95 border border-violet-600 shadow-md relative z-50"
+                   className={`mx-auto flex items-center gap-2 px-4 py-2 bg-violet-700 text-violet-200 rounded-full transition-all active:scale-95 border border-violet-600 shadow-md relative z-50 ${isAudioLoading ? 'opacity-50' : 'hover:bg-violet-600'}`}
                    title="Listen to example sentence"
                  >
                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5">
@@ -194,7 +196,7 @@ const Flashcards: React.FC<FlashcardsProps> = ({ cards, onComplete, onClose, onS
             
             {isLast ? (
               <button 
-                onClick={onComplete}
+                onClick={handleNext}
                 className="flex-[1.5] bg-white text-violet-700 font-black py-4 rounded-2xl shadow-xl active:scale-95 transition-all uppercase tracking-widest text-sm hover:bg-violet-50 border-b-4 border-violet-200"
               >
                 Finish 🎉

@@ -176,7 +176,6 @@ const App: React.FC = () => {
 
   const toggleLiveMode = async () => {
     if (isLiveMode) {
-      // PERSIST LIVE CONVERSATION BACK TO HISTORY
       if (liveMessages.length > 0) {
         const newMessagesFromLive: Message[] = liveMessages.map((m, idx) => ({
           id: `live-persisted-${Date.now()}-${idx}`,
@@ -235,7 +234,8 @@ const App: React.FC = () => {
               });
             },
             onTurnComplete: () => console.log("Turn Complete"),
-            onError: (err) => { console.error(err); setIsLiveMode(false); }
+            // Fix: Changed 'onerror' to 'onError' to match the type definition in services/gemini.ts
+            onError: (err: any) => { console.error(err); setIsLiveMode(false); }
           }
         );
         const session = await sessionPromise;
@@ -328,14 +328,14 @@ const App: React.FC = () => {
       setProgress(completeSubTopic(currentTopic.id, currentSubTopic.id, progress));
       alert(`¡Excelente! Score: ${score}/10. You've unlocked the next part of your journey.`);
     } else { alert(`Score: ${score}/10. Keep practicing! You need 7/10 to advance.`); }
-    setView(AppView.DASHBOARD);
+    // User requested to return to "learning" (the chat) instead of dashboard
+    setView(AppView.CHAT);
   };
 
   const handlePlayAudio = async (msg: Message, isAutoPlay = false) => {
     initAudioContext();
     if (!audioContextRef.current) return;
     
-    // Safety stop
     if (activeSourceRef.current) {
       try { activeSourceRef.current.stop(); } catch (e) {}
       activeSourceRef.current = null;
@@ -359,7 +359,6 @@ const App: React.FC = () => {
     initAudioContext();
     if (!audioContextRef.current) return;
     
-    // Safety stop
     if (activeSourceRef.current) {
       try { activeSourceRef.current.stop(); } catch (e) {}
       activeSourceRef.current = null;
@@ -389,12 +388,12 @@ const App: React.FC = () => {
     </>
   );
 
-  if (view === AppView.QUIZ) return <Quiz questions={quizQuestions} onComplete={handleQuizComplete} onCancel={() => setView(AppView.DASHBOARD)} />;
+  if (view === AppView.QUIZ) return <Quiz questions={quizQuestions} onComplete={handleQuizComplete} onCancel={() => setView(AppView.CHAT)} />;
   if (view === AppView.FLASHCARDS) return (
     <Flashcards 
       cards={flashcards} 
-      onComplete={() => setView(AppView.DASHBOARD)} 
-      onClose={() => setView(AppView.DASHBOARD)} 
+      onComplete={() => setView(AppView.CHAT)} 
+      onClose={() => setView(AppView.CHAT)} 
       onSpeak={handleQuickSpeak}
     />
   );
